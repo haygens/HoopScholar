@@ -2,7 +2,10 @@
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
+.pytest_cache/
+# Databases stay local, except the real one, which is deployed to Vercel
 data/*.db
+!data/hoopscholar.db
 data/*.db-*
 data/logs/
 data/.nightly.lock*

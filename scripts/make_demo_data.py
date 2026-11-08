@@ -233,8 +233,8 @@ def main():
     ap.add_argument("--db", default=str(config.ROOT / "data" / "demo.db"))
     args = ap.parse_args()
     path = Path(args.db)
-    if path.exists():
-        path.unlink()
+    for f in [path, *path.parent.glob(path.name + "-*")]:
+        f.unlink(missing_ok=True)
     teams, index, log, shots, base, adv, track = build()
     conn = db.connect(path)
     db.init_schema(conn)

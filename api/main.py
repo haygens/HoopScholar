@@ -26,8 +26,7 @@ _local = threading.local()
 def conn():
     """One read-only-ish SQLite connection per worker thread."""
     if not hasattr(_local, "conn"):
-        _local.conn = db.connect()
-        _local.conn.execute("PRAGMA query_only=ON")
+        _local.conn = db.connect(readonly=True)
     return _local.conn
 
 

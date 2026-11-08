@@ -1,5 +1,6 @@
 """SQLite connection and upsert helpers."""
 import datetime as dt
+import os
 import sqlite3
 from pathlib import Path
 from typing import Iterable, Sequence
@@ -9,14 +10,36 @@ from . import config
 SCHEMA = Path(__file__).with_name("schema.sql")
 
 
-def connect(path=None) -> sqlite3.Connection:
+def connect(path=None, readonly: bool = False) -> sqlite3.Connection:
+    """Open the database.
+
+    readonly=True is what the website uses. On Vercel (where the VERCEL env var
+    is set) the file system is read-only, so the file is also opened as
+    'immutable', which tells SQLite not to look for lock or journal files.
+    """
     path = Path(path or config.DB_PATH)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path)
+    if readonly:
+        if not path.exists():
+            raise FileNotFoundError(f"Database not found: {path}")
+        uri = f"{path.resolve().as_uri()}?mode=ro" + ("&immutable=1" if os.environ.get("VERCEL") else "")
+        conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
+    else:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(path)
+        # Plain rollback journal (not WAL) so the single .db file is always
+        # complete and can be committed to Git and deployed as-is.
+        conn.execute("PRAGMA journal_mode=DELETE")
+        conn.execute("PRAGMA foreign_keys=OFF")  # bulk loads arrive in any order
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=OFF")  # bulk loads arrive in any order
     return conn
+
+
+def compact(conn: sqlite3.Connection) -> None:
+    """Fold any leftover journal into the main file and shrink it."""
+    conn.commit()
+    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    conn.execute("PRAGMA journal_mode=DELETE")
+    conn.execute("VACUUM")
 
 
 def init_schema(conn: sqlite3.Connection) -> None:

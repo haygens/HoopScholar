@@ -53,6 +53,7 @@ def finish(conn, season: str, kind: str, detail: str) -> None:
     db.set_meta(conn, "data_source", "nba.com")
     db.log_run(conn, kind, season, detail)
     conn.commit()
+    db.compact(conn)
 
 
 def last_game_date(conn, season: str) -> str | None:

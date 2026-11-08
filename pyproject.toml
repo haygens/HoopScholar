@@ -1,0 +1,14 @@
+# Used by Vercel to install the website's runtime libraries and find the app.
+# For local development (data pulls, notebook, tests) use requirements-dev.txt.
+[project]
+name = "hoopscholar"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.110",
+    "pandas>=2.0",
+    "numpy>=1.26",
+]
+
+[tool.vercel]
+entrypoint = "api.main:app"

@@ -1,0 +1,4 @@
+notebooks/
+tests/
+data/demo.db
+data/logs/

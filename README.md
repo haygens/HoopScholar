@@ -73,6 +73,22 @@ The computer has to be awake when the job runs. When this outgrows a laptop, mov
 hosted Postgres (Supabase/Neon free tiers) and run the job from any always-on machine
 whose IP NBA.com accepts, or through a proxy.
 
+## Deploying to Vercel (free, personal use)
+
+The site only reads data, so Vercel serves a read-only copy of `data/hoopscholar.db`
+committed to the repo. `pyproject.toml` tells Vercel where the app is (`api.main:app`) and
+lists only the libraries the website needs; `requirements.txt` stays the full local set.
+
+1. Import the GitHub repo at vercel.com/new (no settings to change).
+2. After each nightly run on your PC:
+   ```
+   python scripts/prepare_deploy.py
+   git add data/hoopscholar.db
+   git commit -m "Data update"
+   git push
+   ```
+   Vercel redeploys automatically.
+
 ## How the numbers work
 
 - **Qualified players** have played ≥ 50% of the league-leading games-played total *and* average
