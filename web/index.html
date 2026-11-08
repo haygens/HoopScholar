@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HoopScholar</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#/">Hoop<span>Scholar</span></a>
+    <nav>
+      <a href="#/">Leaderboards</a>
+    </nav>
+    <div class="search">
+      <input id="search" type="search" placeholder="Search players…" autocomplete="off" aria-label="Search players">
+      <ul id="search-results" class="search-results" hidden></ul>
+    </div>
+  </header>
+  <div id="banner" class="banner" hidden></div>
+  <main id="app"><p class="muted">Loading…</p></main>
+  <footer class="foot">
+    Data: NBA.com via nba_api. Not affiliated with or endorsed by the NBA.
+    <span id="updated"></span>
+  </footer>
+  <script src="/static/app.js"></script>
+</body>
+</html>

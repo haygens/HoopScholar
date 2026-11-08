@@ -1,0 +1,311 @@
+// HoopScholar front end: no build step, no framework. Hash routes:
+//   #/                                leaderboards
+//   #/?stat=ts_pct&season=2025-26     leaderboard with options
+//   #/player/203999?season=2025-26    player page
+
+const $ = (sel, el = document) => el.querySelector(sel);
+const app = $("#app");
+let META = null;
+
+const api = async (path) => {
+  const res = await fetch(path);
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
+  return res.json();
+};
+
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+function fmt(v, kind) {
+  if (v === null || v === undefined || Number.isNaN(v)) return "—";
+  switch (kind) {
+    case "pct": return (v * 100).toFixed(1) + "%";
+    case "num2": return v.toFixed(2);
+    case "int": return Math.round(v).toString();
+    default: return v.toFixed(1);
+  }
+}
+
+// Savant palette: blue (0) -> grey (50) -> red (100)
+const BLUE = [54, 97, 173], GREY = [200, 200, 200], RED = [216, 34, 31];
+function mix(a, b, t) { return a.map((x, i) => Math.round(x + (b[i] - x) * t)); }
+function pctColor(p) {
+  if (p === null || p === undefined) return "rgb(200,200,200)";
+  const c = p < 50 ? mix(BLUE, GREY, p / 50) : mix(GREY, RED, (p - 50) / 50);
+  return `rgb(${c.join(",")})`;
+}
+// For hexes: diff vs league FG%, clamped to +/-10 points
+function diffColor(d) {
+  if (d === null) return "rgb(200,200,200)";
+  return pctColor(50 + Math.max(-1, Math.min(1, d / 0.10)) * 50);
+}
+
+function parseHash() {
+  const [path, qs] = location.hash.replace(/^#/, "").split("?");
+  return { parts: (path || "/").split("/").filter(Boolean), params: new URLSearchParams(qs || "") };
+}
+
+async function route() {
+  const { parts, params } = parseHash();
+  window.scrollTo(0, 0);
+  try {
+    if (parts[0] === "player" && parts[1]) await renderPlayer(+parts[1], params.get("season"));
+    else await renderLeaderboard(params);
+  } catch (e) {
+    app.innerHTML = `<div class="card"><h2>Something went wrong</h2><p>${esc(e.message)}</p></div>`;
+  }
+}
+
+// ------------------------------------------------------------------ leaderboard
+
+async function renderLeaderboard(params) {
+  const stat = params.get("stat") || "pts";
+  const season = params.get("season") || META.seasons[0];
+  const qualified = params.get("all") !== "1";
+  const data = await api(`/api/leaderboard?stat=${stat}&season=${season}&qualified=${qualified}&limit=100`);
+  const m = META.sortable.find((x) => x.key === stat);
+
+  const groups = {};
+  META.sortable.forEach((s) => (groups[s.group] ??= []).push(s));
+  const statOptions = Object.entries(groups).map(([g, ms]) =>
+    `<optgroup label="${esc(g)}">${ms.map((s) => `<option value="${s.key}" ${s.key === stat ? "selected" : ""}>${esc(s.label)}</option>`).join("")}</optgroup>`).join("");
+
+  app.innerHTML = `
+    <h1 class="page-title">Leaderboard: ${esc(m.label)}</h1>
+    <div class="controls">
+      <label>Stat <select id="lb-stat">${statOptions}</select></label>
+      <label>Season <select id="lb-season">${META.seasons.map((s) => `<option ${s === season ? "selected" : ""}>${s}</option>`).join("")}</select></label>
+      <label><input type="checkbox" id="lb-q" ${qualified ? "checked" : ""}> Qualified only</label>
+      <span class="muted">Qualified = ${Math.round(META.qualification.gp_share * 100)}% of max games played and ${META.qualification.min_mpg}+ MPG</span>
+    </div>
+    <div class="card table-wrap">
+      <table>
+        <thead><tr><th>#</th><th class="l">Player</th><th class="l">Team</th><th>GP</th><th>MIN</th><th>PTS</th><th>REB</th><th>AST</th><th>TS%</th><th>${esc(m.label)}</th><th>Pctl</th></tr></thead>
+        <tbody>${data.rows.map((r) => `
+          <tr>
+            <td>${r.rank}</td>
+            <td class="l"><a href="#/player/${r.player_id}?season=${season}">${esc(r.full_name)}</a></td>
+            <td class="l">${esc(r.team_abbr)}</td>
+            <td>${r.gp}</td><td>${fmt(r.min)}</td><td>${fmt(r.pts)}</td><td>${fmt(r.reb)}</td><td>${fmt(r.ast)}</td>
+            <td>${fmt(r.ts_pct, "pct")}</td>
+            <td><strong>${fmt(r.value, m.fmt)}</strong></td>
+            <td>${r.percentile == null ? "" : `<span class="chip" style="background:${pctColor(r.percentile)}">${r.percentile}</span>`}</td>
+          </tr>`).join("")}
+        </tbody>
+      </table>
+      ${data.rows.length ? "" : `<p class="muted">No players.</p>`}
+    </div>`;
+
+  const go = () => {
+    const p = new URLSearchParams({ stat: $("#lb-stat").value, season: $("#lb-season").value });
+    if (!$("#lb-q").checked) p.set("all", "1");
+    location.hash = `#/?${p}`;
+  };
+  ["#lb-stat", "#lb-season", "#lb-q"].forEach((s) => $(s).addEventListener("change", go));
+}
+
+// ------------------------------------------------------------------ player page
+
+async function renderPlayer(id, season) {
+  const qs = season ? `?season=${season}` : "";
+  const d = await api(`/api/players/${id}${qs}`);
+  const shots = await api(`/api/players/${id}/shots?season=${d.season}`);
+  const p = d.player, s = d.stats;
+  document.title = `${p.full_name} · HoopScholar`;
+
+  const groups = {};
+  d.sliders.forEach((x) => (groups[x.group] ??= []).push(x));
+
+  app.innerHTML = `
+    <section class="player-head">
+      <div>
+        <h1>${esc(p.full_name)}</h1>
+        <div class="bio">${[s.team_abbr || p.team_abbr, p.position, p.height, p.weight && p.weight + " lb", s.age && "Age " + s.age].filter(Boolean).map(esc).join(" · ")}</div>
+      </div>
+      <div>${d.qualified ? `<span class="tag">Qualified · ranked vs ${d.pool_size} players</span>` : `<span class="tag warn">Not qualified · percentiles vs ${d.pool_size} qualified players</span>`}</div>
+      <select id="season">${d.seasons.map((x) => `<option ${x === d.season ? "selected" : ""}>${x}</option>`).join("")}</select>
+    </section>
+
+    <div class="grid two">
+      <section class="card">
+        <h2>${d.season} Percentile Rankings</h2>
+        ${Object.entries(groups).map(([g, rows]) => `
+          <div class="pgroup"><h3>${esc(g)}</h3>
+            ${rows.map(slider).join("")}
+          </div>`).join("")}
+      </section>
+
+      <section class="card">
+        <h2>Shot Chart · ${shots.shots.length} FGA</h2>
+        <div class="chart-controls">
+          <div class="seg" id="view"><button data-v="dots" class="on">Shots</button><button data-v="hex">Hot zones</button></div>
+          <div class="seg" id="result"><button data-v="all" class="on">All</button><button data-v="made">Made</button><button data-v="miss">Missed</button></div>
+        </div>
+        <div id="chart"></div>
+        <div class="legend" id="legend"></div>
+
+        <h2 style="margin-top:22px">Shot Zones</h2>
+        <table>
+          <thead><tr><th class="l">Zone</th><th>FGA</th><th>FGM</th><th>FG%</th><th>League</th><th>+/-</th></tr></thead>
+          <tbody>${d.zones.map((z) => {
+            const diff = z.league_fg_pct == null ? null : z.fg_pct - z.league_fg_pct;
+            return `<tr><td class="l">${esc(z.zone_basic)}</td><td>${z.fga}</td><td>${z.fgm}</td><td>${fmt(z.fg_pct, "pct")}</td>
+              <td class="muted">${fmt(z.league_fg_pct, "pct")}</td>
+              <td style="color:${diffColor(diff)};font-weight:700">${diff == null ? "—" : (diff >= 0 ? "+" : "") + (diff * 100).toFixed(1)}</td></tr>`;
+          }).join("")}</tbody>
+        </table>
+      </section>
+    </div>
+
+    <section class="card" style="margin-top:20px">
+      <h2>Season Stats (Per Game)</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Season</th><th class="l">Team</th><th>GP</th><th>MIN</th><th>PTS</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>TOV</th><th>FG%</th><th>3P%</th><th>FT%</th><th>TS%</th></tr></thead>
+        <tbody>${d.career.map((c) => `<tr><td>${c.season}</td><td class="l">${esc(c.team_abbr)}</td><td>${c.gp}</td>
+          ${["min", "pts", "reb", "ast", "stl", "blk", "tov"].map((k) => `<td>${fmt(c[k])}</td>`).join("")}
+          ${["fg_pct", "fg3_pct", "ft_pct", "ts_pct"].map((k) => `<td>${fmt(c[k], "pct")}</td>`).join("")}</tr>`).join("")}
+        </tbody>
+      </table></div>
+    </section>`;
+
+  $("#season").addEventListener("change", (e) => (location.hash = `#/player/${id}?season=${e.target.value}`));
+
+  const state = { view: "dots", result: "all" };
+  const draw = () => {
+    $("#chart").innerHTML = shotChart(shots, state);
+    $("#legend").innerHTML = state.view === "hex"
+      ? `<span>Colder</span><span class="ramp"></span><span>Hotter</span><span>· FG% vs league from the same spot · size = volume</span>`
+      : `<svg width="12" height="12"><circle cx="6" cy="6" r="5" fill="#e8572a" fill-opacity=".7"/></svg> Made
+         <svg width="12" height="12"><circle cx="6" cy="6" r="4.5" fill="none" stroke="#8a94a3" stroke-width="1.5"/></svg> Missed`;
+    $("#result").style.display = state.view === "hex" ? "none" : "";
+  };
+  for (const id of ["view", "result"]) {
+    $("#" + id).addEventListener("click", (e) => {
+      const b = e.target.closest("button"); if (!b) return;
+      [...$("#" + id).children].forEach((x) => x.classList.toggle("on", x === b));
+      state[id] = b.dataset.v; draw();
+    });
+  }
+  draw();
+}
+
+function slider(x) {
+  const has = x.percentile !== null && x.percentile !== undefined;
+  const p = has ? x.percentile : 0;
+  const c = pctColor(x.percentile);
+  return `
+    <div class="prow ${has ? "" : "na"}">
+      <div class="label">${esc(x.label)}</div>
+      <div class="track">
+        <div class="mid"></div>
+        ${has ? `<div class="fill" style="width:${p}%;background:${c}"></div>
+        <div class="dot" style="left:${p}%;background:${c}">${p}</div>` : ""}
+      </div>
+      <div class="val">${fmt(x.value, x.fmt)}</div>
+    </div>`;
+}
+
+// ------------------------------------------------------------------ SVG court
+
+// NBA coords: tenths of feet, hoop at (0,0), y grows toward half court.
+// SVG y also grows downward, so the hoop sits at the top like NBA.com charts.
+const COURT = `
+  <g class="lines">
+    <rect x="-250" y="-47.5" width="500" height="470"/>
+    <rect x="-80" y="-47.5" width="160" height="190"/>
+    <rect x="-60" y="-47.5" width="120" height="190"/>
+    <path d="M -60 142.5 A 60 60 0 0 0 60 142.5"/>
+    <path d="M -60 142.5 A 60 60 0 0 1 60 142.5" stroke-dasharray="8 8"/>
+    <path d="M -40 0 A 40 40 0 0 0 40 0"/>
+    <path d="M -220 -47.5 L -220 89.5 A 237.5 237.5 0 0 0 220 89.5 L 220 -47.5"/>
+    <path d="M -60 422.5 A 60 60 0 0 1 60 422.5"/>
+    <path d="M -20 422.5 A 20 20 0 0 1 20 422.5"/>
+    <line x1="-30" y1="-7.5" x2="30" y2="-7.5" stroke-width="3"/>
+    <circle cx="0" cy="0" r="7.5"/>
+  </g>`;
+
+function hexPath(cx, cy, r) {
+  const pts = [];
+  for (let i = 0; i < 6; i++) {
+    const a = Math.PI / 180 * (60 * i - 30); // pointy-top
+    pts.push(`${(cx + r * Math.cos(a)).toFixed(1)},${(cy + r * Math.sin(a)).toFixed(1)}`);
+  }
+  return `M${pts.join("L")}Z`;
+}
+
+function shotChart(data, state) {
+  let marks = "";
+  if (state.view === "dots") {
+    const list = data.shots.filter((s) => s.y <= 422.5 && (state.result === "all" || (state.result === "made") === !!s.m));
+    // misses first so makes draw on top
+    list.sort((a, b) => a.m - b.m);
+    marks = list.map((s) => s.m
+      ? `<circle class="made" cx="${s.x}" cy="${s.y}" r="4.5"><title>${esc(s.a)} · ${s.d} ft · made · ${s.g}</title></circle>`
+      : `<circle class="miss" cx="${s.x}" cy="${s.y}" r="4"><title>${esc(s.a)} · ${s.d} ft · missed · ${s.g}</title></circle>`).join("");
+  } else {
+    const hexes = data.hexes.filter((h) => h.fga >= 3);
+    const maxFga = Math.max(1, ...hexes.map((h) => h.fga));
+    const K = 8; // shrink small samples toward league average so 2-for-3 isn't "on fire"
+    marks = hexes.map((h) => {
+      const pct = h.fgm / h.fga;
+      const diff = h.league_pct == null ? null : (h.fgm + K * h.league_pct) / (h.fga + K) - h.league_pct;
+      const scale = 0.35 + 0.65 * Math.sqrt(h.fga / maxFga);
+      return `<path d="${hexPath(h.x, h.y, data.hex_radius * scale)}" fill="${diffColor(diff)}" stroke="#fff" stroke-width=".5">
+        <title>${h.fgm}/${h.fga} (${(pct * 100).toFixed(0)}%) · league ${h.league_pct == null ? "—" : (h.league_pct * 100).toFixed(0) + "%"}</title></path>`;
+    }).join("");
+  }
+  return `<svg class="court" viewBox="-252 -50 504 475" role="img" aria-label="Shot chart">
+    <defs><clipPath id="court-clip"><rect x="-250" y="-47.5" width="500" height="470"/></clipPath></defs>
+    ${COURT}<g clip-path="url(#court-clip)">${marks}</g></svg>`;
+}
+
+// ------------------------------------------------------------------ search
+
+function setupSearch() {
+  const input = $("#search"), list = $("#search-results");
+  let timer, items = [], active = -1;
+  const close = () => { list.hidden = true; active = -1; };
+  const paint = () => {
+    list.innerHTML = items.map((p, i) => `<li><a href="#/player/${p.player_id}" class="${i === active ? "active" : ""}">
+      <span>${esc(p.full_name)}</span><span class="meta">${esc([p.team_abbr, p.position, p.last_season].filter(Boolean).join(" · "))}</span></a></li>`).join("")
+      || `<li><a class="meta">No players found</a></li>`;
+    list.hidden = false;
+  };
+  input.addEventListener("input", () => {
+    clearTimeout(timer);
+    const q = input.value.trim();
+    if (!q) return close();
+    timer = setTimeout(async () => { items = await api(`/api/search?q=${encodeURIComponent(q)}`); active = -1; paint(); }, 150);
+  });
+  input.addEventListener("keydown", (e) => {
+    if (list.hidden || !items.length) return;
+    if (e.key === "ArrowDown") { active = (active + 1) % items.length; paint(); e.preventDefault(); }
+    if (e.key === "ArrowUp") { active = (active - 1 + items.length) % items.length; paint(); e.preventDefault(); }
+    if (e.key === "Enter") { location.hash = `#/player/${items[Math.max(0, active)].player_id}`; input.value = ""; close(); }
+    if (e.key === "Escape") close();
+  });
+  list.addEventListener("click", () => { input.value = ""; close(); });
+  document.addEventListener("click", (e) => { if (!e.target.closest(".search")) close(); });
+}
+
+// ------------------------------------------------------------------ boot
+
+(async function init() {
+  setupSearch();
+  try {
+    META = await api("/api/meta");
+  } catch (e) {
+    app.innerHTML = `<div class="card"><h2>API not reachable</h2><p>${esc(e.message)}</p></div>`;
+    return;
+  }
+  if (!META.seasons.length) {
+    app.innerHTML = `<div class="card"><h2>No data yet</h2><p>Run <code>python scripts/backfill.py --season 2025-26</code> or <code>python scripts/make_demo_data.py</code>.</p></div>`;
+    return;
+  }
+  if (META.data_source === "demo") {
+    const b = $("#banner"); b.hidden = false;
+    b.textContent = "Demo data: every player and number here is invented. Run scripts/backfill.py to load the real season.";
+  }
+  if (META.last_updated) $("#updated").textContent = `· Updated ${new Date(META.last_updated).toLocaleString()}`;
+  window.addEventListener("hashchange", route);
+  route();
+})();

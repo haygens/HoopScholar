@@ -1,0 +1,88 @@
+"""End-to-end test of backfill + nightly logic with the network calls faked.
+
+    python -m pytest tests/        (or just: python tests/test_pipeline.py)
+
+The fake fetchers return demo frames shaped exactly like nba_api's, filtered by
+team and date the way stats.nba.com would, so this checks the incremental
+logic without touching stats.nba.com.
+"""
+import datetime as dt
+import sys
+import tempfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "scripts"))
+
+import make_demo_data  # noqa: E402
+from hoopscholar import db, fetch, metrics, pipeline  # noqa: E402
+
+SEASON = "2025-26"
+
+
+def fake_fetchers(cutoff: str):
+    """Pretend today is `cutoff`: nothing after it exists yet."""
+    teams, index, log, shots, base, adv, track = make_demo_data.build(seed=3)
+    shots = shots.assign(_iso=pd_iso(shots["GAME_DATE"]))
+    shots = shots[shots["_iso"] <= cutoff]
+    log = log[log["GAME_DATE"] <= cutoff]
+
+    def since(df, col, date_from):
+        if not date_from:
+            return df
+        return df[df[col] >= date_from]
+
+    fetch.player_index = lambda season: index
+    fetch.team_game_log = lambda season, date_from=None: since(log, "GAME_DATE", date_from)
+    fetch.shots_for_team = lambda season, team_id, date_from=None: since(
+        shots[shots["TEAM_ID"] == team_id], "_iso", date_from).drop(columns="_iso")
+    fetch.player_stats = lambda season, measure="Base": base if measure == "Base" else adv
+    fetch.player_tracking = lambda season, measure="SpeedDistance": track
+    return shots
+
+
+def pd_iso(col):
+    return col.str.slice(0, 4) + "-" + col.str.slice(4, 6) + "-" + col.str.slice(6, 8)
+
+
+def test_backfill_then_nightly():
+    path = Path(tempfile.mkdtemp()) / "t.db"
+    conn = db.connect(path)
+    db.init_schema(conn)
+
+    # Backfill as of mid-December
+    first = fake_fetchers("2025-12-15")
+    pipeline.ingest_reference(conn, SEASON)
+    pipeline.ingest_games(conn, SEASON)
+    pipeline.ingest_shots(conn, SEASON)
+    pipeline.ingest_season_stats(conn, SEASON)
+    pipeline.finish(conn, SEASON, "backfill", "test")
+    n1 = conn.execute("SELECT COUNT(*) FROM shots").fetchone()[0]
+    assert n1 == len(first), (n1, len(first))
+    assert pipeline.last_game_date(conn, SEASON) <= "2025-12-15"
+
+    # Nightly run a month later only adds the new shots, no duplicates
+    later = fake_fetchers("2026-01-15")
+    last = pipeline.last_game_date(conn, SEASON)
+    pipeline.ingest_games(conn, SEASON, pipeline.day_before(last))
+    pipeline.ingest_shots(conn, SEASON, pipeline.day_before(last))
+    pipeline.finish(conn, SEASON, "nightly", "test")
+    n2 = conn.execute("SELECT COUNT(*) FROM shots").fetchone()[0]
+    assert n2 == len(later), (n2, len(later))
+    assert n2 > n1
+
+    # Percentiles: qualified pool spans 0..100, lower-is-better flipped
+    frame = metrics.season_frame(conn, SEASON)
+    pct = metrics.percentiles(frame).set_index("player_id")
+    q = frame[frame["qualified"]].set_index("player_id")
+    assert pct.loc[q.index, "pts"].min() == 0 and pct.loc[q.index, "pts"].max() == 100
+    best_tov = q["tov"].idxmin()
+    assert pct.loc[best_tov, "tov"] == 100
+    games = conn.execute("SELECT COUNT(*) FROM games WHERE home_team_id IS NULL OR away_team_id IS NULL").fetchone()[0]
+    assert games == 0
+    print(f"ok: backfill {n1} shots, nightly -> {n2}, {len(q)} qualified players")
+
+
+if __name__ == "__main__":
+    test_backfill_then_nightly()
