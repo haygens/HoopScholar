@@ -74,6 +74,10 @@ async function renderLeaderboard(params) {
   const qualified = params.get("all") !== "1";
   const data = await api(`/api/leaderboard?stat=${stat}&season=${season}&qualified=${qualified}&limit=100`);
   const m = META.sortable.find((x) => x.key === stat);
+  // Standard columns; the sorted stat is highlighted in place when it's one of
+  // them, and only added as its own column when it isn't.
+  const cols = [["gp", "GP", "int"], ["min", "MIN"], ["pts", "PTS"], ["reb", "REB"], ["ast", "AST"], ["ts_pct", "TS%", "pct"]];
+  if (!cols.some(([k]) => k === stat)) cols.push([stat, m.label, m.fmt]);
 
   const groups = {};
   META.sortable.forEach((s) => (groups[s.group] ??= []).push(s));
@@ -90,15 +94,15 @@ async function renderLeaderboard(params) {
     </div>
     <div class="card table-wrap">
       <table>
-        <thead><tr><th>#</th><th class="l">Player</th><th class="l">Team</th>${th("gp", "GP")}${th("min", "MIN")}${th("pts", "PTS")}${th("reb", "REB")}${th("ast", "AST")}${th("ts_pct", "TS%")}${th(stat, m.label)}${th("percentile", "Pctl")}</tr></thead>
+        <thead><tr><th>#</th><th class="l">Player</th><th class="l">Team</th>${cols.map(([k, l]) => k === stat
+          ? `<th class="sorted" aria-sort="${(m.higher_better ? "descending" : "ascending")}">${tip(k, l)}</th>`
+          : th(k, l)).join("")}${th("percentile", "Pctl")}</tr></thead>
         <tbody>${data.rows.map((r) => `
           <tr>
             <td>${r.rank}</td>
             <td class="l"><a href="#/player/${r.player_id}?season=${season}">${esc(r.full_name)}</a></td>
             <td class="l">${teamLink(r.team_abbr, season)}</td>
-            <td>${r.gp}</td><td>${fmt(r.min)}</td><td>${fmt(r.pts)}</td><td>${fmt(r.reb)}</td><td>${fmt(r.ast)}</td>
-            <td>${fmt(r.ts_pct, "pct")}</td>
-            <td><strong>${fmt(r.value, m.fmt)}</strong></td>
+            ${cols.map(([k, , f]) => `<td${k === stat ? ` class="sorted"` : ""}>${fmt(r[k], f)}</td>`).join("")}
             <td>${r.percentile == null ? "" : `<span class="chip" style="background:${pctColor(r.percentile)}">${r.percentile}</span>`}</td>
           </tr>`).join("")}
         </tbody>
