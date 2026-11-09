@@ -176,6 +176,7 @@ def season_frame(conn, season: str) -> pd.DataFrame:
     plays = df["fga"] + 0.44 * df["fta"] + df["tov"]
     df["tov_pct"] = df["tov_pct"].fillna(100 * df["tov"] / plays.where(plays > 0))
     df["tov_opps"] = df["gp"] * plays  # season turnover opportunities, from the per-game line
+    df["tsa"] = df["gp"] * (df["fga"] + 0.44 * df["fta"])  # season true shooting attempts
     max_gp = df["gp"].max() or 0
     df["qualified"] = (df["gp"] >= config.QUAL_GP_SHARE * max_gp) & (df["min"] >= config.QUAL_MIN_MPG)
     return df
@@ -199,14 +200,22 @@ def min_tov_opps(frame: pd.DataFrame) -> int:
     return scaled_min(frame, config.TOV_MIN_OPPS, config.TOV_OPPS_FLOOR)
 
 
+def min_tsa(frame: pd.DataFrame) -> int:
+    """True shooting attempts (FGA + 0.44*FTA) a player needs to be ranked on TS%."""
+    return scaled_min(frame, config.TS_MIN_TSA, config.TS_TSA_FLOOR)
+
+
 def rank_mask(rows: pd.DataFrame, m: Metric, frame: pd.DataFrame) -> pd.Series:
     """Which of `rows` may be ranked on metric m (leaderboards): zone stats need
-    the zone pool's attempt minimum, TOV% needs min_tov_opps(). Minimums come
+    the zone pool's attempt minimum, TOV% needs min_tov_opps(), TS% needs
+    min_tsa(). Minimums come
     from the whole season `frame`, so filtering rows first doesn't change them."""
     if m.sample_col:
         return sample_ok(rows, m, pool_min_fga(frame))
     if m.key == "tov_pct" and "tov_opps" in rows:
         return rows["tov_opps"].fillna(0) >= min_tov_opps(frame)
+    if m.key == "ts_pct" and "tsa" in rows:
+        return rows["tsa"].fillna(0) >= min_tsa(frame)
     return pd.Series(True, index=rows.index)
 
 
@@ -216,6 +225,8 @@ def rank_minimum(m: Metric, frame: pd.DataFrame) -> dict | None:
         return {"value": pool_min_fga(frame), "unit": "attempts in that zone"}
     if m.key == "tov_pct":
         return {"value": min_tov_opps(frame), "unit": "turnover opportunities (FGA + 0.44×FTA + TOV)"}
+    if m.key == "ts_pct":
+        return {"value": min_tsa(frame), "unit": "true shooting attempts (FGA + 0.44×FTA)"}
     return None
 
 

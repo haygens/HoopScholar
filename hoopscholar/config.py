@@ -30,6 +30,11 @@ SEASON_GAMES = 82
 # 400 is about 5 plays a game; it keeps 0-turnover small samples off the top.
 TOV_MIN_OPPS = int(os.environ.get("HOOP_TOV_MIN_OPPS", "400"))
 TOV_OPPS_FLOOR = int(os.environ.get("HOOP_TOV_OPPS_FLOOR", "30"))
+# TS% is only ranked on the leaderboard for players with at least this many true
+# shooting attempts (FGA + 0.44*FTA) over a full season, scaled the same way.
+# 400 is about 5 a game; it keeps a 3-for-3 cameo off the top with "Qualified only" unchecked.
+TS_MIN_TSA = int(os.environ.get("HOOP_TS_MIN_TSA", "400"))
+TS_TSA_FLOOR = int(os.environ.get("HOOP_TS_TSA_FLOOR", "30"))
 # Below this league-leading games-played total, the player page warns that
 # percentiles are early-season numbers.
 EARLY_SEASON_GP = int(os.environ.get("HOOP_EARLY_SEASON_GP", "15"))

@@ -179,7 +179,7 @@ def leaderboard(stat: str = "pts", season: str | None = None, qualified: bool = 
     m = metrics.SORTABLE[stat]
     df = frame[frame["qualified"]] if qualified else frame
     df = df.dropna(subset=[stat])
-    df = df[metrics.rank_mask(df, m, frame)]  # zone FG% and TOV%: sample minimums
+    df = df[metrics.rank_mask(df, m, frame)]  # zone FG%, TOV% and TS%: sample minimums
     ascending = (not m.higher_better) if asc is None else asc
     df = df.sort_values(stat, ascending=ascending).head(limit)
     pct_lookup = pcts.set_index("player_id")[stat] if stat in pcts else None

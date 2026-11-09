@@ -186,5 +186,20 @@ def test_tov_pct_needs_enough_plays():
     assert metrics.top_percentiles(row, prow)[0]["key"] == "tov_pct"    # no minimum given: unchanged
 
 
+def test_ts_pct_needs_enough_attempts():
+    import pandas as pd
+    from hoopscholar import config
+    # tsa = gp * (fga + 0.44 * fta): 11 * 3 = 33, 11 * 9 = 99, 6 * 4 = 24
+    frame = pd.DataFrame({"gp": [11, 11, 6], "fga": [3.0, 8.0, 4.0], "fta": [0.0, 2.5, 0.0],
+                          "ts_pct": [1.0, 0.6, 0.9]})
+    frame["tsa"] = frame["gp"] * (frame["fga"] + 0.44 * frame["fta"])
+    m = metrics.METRIC_BY_KEY["ts_pct"]
+    need = metrics.min_tsa(frame)
+    assert need == max(config.TS_TSA_FLOOR, round(config.TS_MIN_TSA * 11 / 82))  # 54 at 11 games
+    assert metrics.rank_mask(frame, m, frame).tolist() == [False, True, False]
+    assert metrics.rank_minimum(m, frame)["value"] == need
+    assert metrics.min_tsa(frame.assign(gp=[82, 82, 82])) == config.TS_MIN_TSA
+
+
 if __name__ == "__main__":
     test_backfill_then_nightly()
