@@ -1,14 +1,19 @@
 """The ingest steps shared by backfill and nightly runs."""
 import datetime as dt
 
-from . import db, fetch, load, metrics
+from . import config, db, fetch, load, metrics
 
 
 def ingest_reference(conn, season: str) -> None:
+    """Teams, plus the player index. Only the current season's index updates
+    existing players (team, roster status, bio); an older season's index only
+    adds players we're missing, so backfilling last season can't put anyone
+    back on their old team."""
     n = load.load_teams(conn, fetch.teams())
     print(f"teams: {n}")
-    n = load.load_players(conn, fetch.player_index(season))
-    print(f"players: {n}")
+    past = season < config.CURRENT_SEASON
+    n = load.load_players(conn, fetch.player_index(season), insert_only=past)
+    print(f"players: {n}" + (" new (past season: existing players left as they are)" if past else ""))
     conn.commit()
 
 

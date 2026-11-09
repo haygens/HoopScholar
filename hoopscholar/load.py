@@ -36,8 +36,11 @@ def load_teams(conn, df: pd.DataFrame) -> int:
     return db.upsert(conn, "teams", rows, ["team_id"])
 
 
-def load_players(conn, df: pd.DataFrame) -> int:
+def load_players(conn, df: pd.DataFrame, insert_only: bool = False) -> int:
+    """insert_only=True adds players we don't have yet and leaves existing rows
+    alone. Use it for past seasons, whose index has last season's teams."""
     now = db.now_iso()
+    known = {r[0] for r in conn.execute("SELECT player_id FROM players")} if insert_only else set()
     rows = []
     for r in df.to_dict("records"):
         first, last = r.get("PLAYER_FIRST_NAME") or "", r.get("PLAYER_LAST_NAME") or ""
@@ -63,6 +66,7 @@ def load_players(conn, df: pd.DataFrame) -> int:
             "to_year": _clean(r.get("TO_YEAR")),
             "updated_at": now,
         })
+    rows = [r for r in rows if r["player_id"] not in known]
     return db.upsert(conn, "players", rows, ["player_id"])
 
 
