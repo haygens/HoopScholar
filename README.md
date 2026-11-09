@@ -128,7 +128,7 @@ lists only the libraries the website needs; `requirements.txt` stays the full lo
 | `GET /api/teams/LAL?season=` | team roster by minutes, each player's top 3 percentiles |
 | `GET /api/leaderboard?stat=ts_pct&season=2025-26&qualified=true&limit=50` | sorted leaderboard |
 | `GET /api/players/{id}?season=` | bio, season stats, percentile sliders, zone splits, career |
-| `GET /api/players/{id}/shots?season=` | every shot + hex bins vs league |
+| `GET /api/players/{id}/shots?season=&last=10&period=4&loc=away` | shots, hex bins and zone splits, optionally filtered by last N games, quarter (1-4, OT) and home/away; always compared with the full-season league |
 | `GET /api/players/{id}/games?season=` | game log with rolling 5-game PTS and TS% |
 | `GET /api/players/{id}/career` | every slider's percentile in every season |
 

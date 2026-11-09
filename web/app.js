@@ -227,25 +227,22 @@ async function renderPlayer(id, season, vs, tab) {
       </section>
 
       <section class="card">
-        <h2>Shot Chart · ${shots.shots.length} FGA</h2>
+        <h2 id="shot-title">${shotTitle(shots)}</h2>
+        <div class="filters" id="shot-filters" aria-label="Filter shots">
+          <label>Games <select name="last"><option value="">All</option><option value="5">Last 5</option><option value="10">Last 10</option><option value="20">Last 20</option></select></label>
+          <label>Quarter <select name="period"><option value="">All</option><option value="1">1st</option><option value="2">2nd</option><option value="3">3rd</option><option value="4">4th</option><option value="OT">OT</option></select></label>
+          <label>Where <select name="loc"><option value="">All</option><option value="home">Home</option><option value="away">Away</option></select></label>
+        </div>
         <div class="chart-controls">
           <div class="seg" id="view"><button data-v="dots" class="on">Shots</button><button data-v="hex">Hot zones</button></div>
           <div class="seg" id="result"><button data-v="all" class="on">All</button><button data-v="made">Made</button><button data-v="miss">Missed</button></div>
         </div>
-        <div id="chart"></div>
-        <div class="legend" id="legend"></div>
-
-        <h2 style="margin-top:22px">Shot Zones</h2>
-        <table>
-          <thead><tr><th class="l">Zone</th><th>FGA</th><th>FGM</th><th>FG%</th>${th("zone_league", "League")}${th("zone_diff", "+/-")}</tr></thead>
-          <tbody>${d.zones.map((z) => {
-            const diff = z.league_fg_pct == null ? null : z.fg_pct - z.league_fg_pct;
-            return `<tr><td class="l">${esc(z.zone_basic)}</td><td>${z.fga}</td><td>${z.fgm}</td><td>${fmt(z.fg_pct, "pct")}</td>
-              <td class="muted">${fmt(z.league_fg_pct, "pct")}</td>
-              <td style="color:${diffColor(diff)};font-weight:700">${diff == null ? "—" : (diff >= 0 ? "+" : "") + (diff * 100).toFixed(1)}</td></tr>`;
-          }).join("")}</tbody>
-        </table>
-        ${d.zones.some((z) => z.no_league_avg) ? `<p class="note">— Backcourt has no league average: NBA.com's official FGA leaves out most missed end-of-quarter heaves, so the few that remain are mostly makes.</p>` : ""}
+        <div id="shot-area">
+          <div id="chart"></div>
+          <div class="legend" id="legend"></div>
+          <h2 style="margin-top:22px">Shot Zones</h2>
+          <div id="zones">${zoneTable(shots.zones)}</div>
+        </div>
       </section>
     </div>
 
@@ -297,11 +294,30 @@ async function renderPlayer(id, season, vs, tab) {
     empty: "No players found",
   });
 
+  // Shot filters refetch the chart, hot zones and zone table together, keeping
+  // the old render (dimmed) on screen until the new one arrives.
+  let shotData = shots, shotReq = 0;
+  $("#shot-filters").addEventListener("change", async () => {
+    const f = Object.fromEntries([...$("#shot-filters").querySelectorAll("select")].filter((s) => s.value).map((s) => [s.name, s.value]));
+    const mine = ++shotReq;
+    $("#shot-area").style.opacity = ".5";
+    const res = await api(`/api/players/${id}/shots?${new URLSearchParams({ season: d.season, ...f })}`).catch(() => null);
+    if (mine !== shotReq) return;
+    $("#shot-area").style.opacity = "";
+    if (!res) return;
+    shotData = res;
+    $("#shot-title").textContent = shotTitle(res);
+    $("#zones").innerHTML = zoneTable(res.zones);
+    draw();
+  });
+
   const state = { view: "dots", result: "all" };
   const draw = () => {
-    $("#chart").innerHTML = shotChart(shots, state);
+    $("#chart").innerHTML = shotChart(shotData, state);
+    const sparse = shotData.hexes.filter((h) => h.fga >= 3).length < 5;
     $("#legend").innerHTML = state.view === "hex"
-      ? `<span>Colder</span><span class="ramp"></span><span>Hotter</span><span>· FG% vs league from the same spot · size = volume</span>`
+      ? `<span>Colder</span><span class="ramp"></span><span>Hotter</span><span>· FG% vs league from the same spot · size = volume</span>
+         ${sparse ? `<span class="note" style="flex-basis:100%;margin:2px 0 0">Hot zones only show spots with 3+ attempts. With these filters few spots qualify, so the Shots view tells you more.</span>` : ""}`
       : `<svg width="12" height="12"><circle cx="6" cy="6" r="5" fill="#e8572a" fill-opacity=".7"/></svg> Made
          <svg width="12" height="12"><circle cx="6" cy="6" r="4.5" fill="none" stroke="#8a94a3" stroke-width="1.5"/></svg> Missed`;
     $("#result").style.display = state.view === "hex" ? "none" : "";
@@ -314,6 +330,32 @@ async function renderPlayer(id, season, vs, tab) {
     });
   }
   draw();
+}
+
+// "Shot Chart · 54 FGA · last 10 games · 4th quarter · away"
+function shotTitle(s) {
+  const f = s.filters || {};
+  const parts = [`${s.shots.length} FGA`];
+  if (f.last) parts.push(`last ${f.last} games`);
+  if (f.period) parts.push(f.period === "OT" ? "overtime" : `${{ 1: "1st", 2: "2nd", 3: "3rd", 4: "4th" }[f.period]} quarter`);
+  if (f.loc) parts.push(f.loc);
+  if ((f.last || f.period || f.loc) && s.games) parts.push(`${s.games} game${s.games === 1 ? "" : "s"}`);
+  return `Shot Chart · ${parts.join(" · ")}`;
+}
+
+// Player FG% by zone vs the full-season league FG% from that zone.
+function zoneTable(zones) {
+  if (!zones.length) return `<p class="muted">No shots match these filters.</p>`;
+  return `<table>
+    <thead><tr><th class="l">Zone</th><th>FGA</th><th>FGM</th><th>FG%</th>${th("zone_league", "League")}${th("zone_diff", "+/-")}</tr></thead>
+    <tbody>${zones.map((z) => {
+      const diff = z.league_fg_pct == null ? null : z.fg_pct - z.league_fg_pct;
+      return `<tr><td class="l">${esc(z.zone_basic)}</td><td>${z.fga}</td><td>${z.fgm}</td><td>${fmt(z.fg_pct, "pct")}</td>
+        <td class="muted">${fmt(z.league_fg_pct, "pct")}</td>
+        <td style="color:${diffColor(diff)};font-weight:700">${diff == null ? "—" : (diff >= 0 ? "+" : "") + (diff * 100).toFixed(1)}</td></tr>`;
+    }).join("")}</tbody>
+  </table>
+  ${zones.some((z) => z.no_league_avg) ? `<p class="note">— Backcourt has no league average: NBA.com's official FGA leaves out most missed end-of-quarter heaves, so the few that remain are mostly makes.</p>` : ""}`;
 }
 
 // One percentile bar. y (optional) is the same stat for a comparison player,

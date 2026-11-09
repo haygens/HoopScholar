@@ -260,11 +260,43 @@ def player(player_id: int, season: str | None = None):
 
 
 @app.get("/api/players/{player_id}/shots")
-def player_shots(player_id: int, season: str | None = None):
+def player_shots(player_id: int, season: str | None = None,
+                 last: int | None = Query(None, ge=1, le=100, description="only the player's last N games with a shot"),
+                 period: str | None = Query(None, pattern="^(1|2|3|4|OT)$"),
+                 loc: str | None = Query(None, pattern="^(home|away)$")):
+    """Shots, hot-zone hexes and zone splits for one player-season, optionally
+    filtered. No extra columns are needed: period is stored on each shot and
+    home/away comes from games. Hexes and zones still compare against the
+    full-season league average."""
     season = resolve_season(season)
-    rows = conn().execute("""SELECT loc_x x, loc_y y, made m, zone_basic z, distance d, action_type a, game_date g
-                             FROM shots WHERE player_id=? AND season=?""", (player_id, season)).fetchall()
+    where, params = ["s.player_id = ?", "s.season = ?"], [player_id, season]
+    if period == "OT":
+        where.append("s.period >= 5")
+    elif period:
+        where.append("s.period = ?")
+        params.append(int(period))
+    if loc:
+        where.append(f"g.home_team_id {'=' if loc == 'home' else '!='} s.team_id")
+    if last:
+        where.append("""s.game_id IN (SELECT game_id FROM shots WHERE player_id = ? AND season = ?
+                                      GROUP BY game_id ORDER BY MAX(game_date) DESC, game_id DESC LIMIT ?)""")
+        params += [player_id, season, last]
+    rows = conn().execute(f"""SELECT s.loc_x x, s.loc_y y, s.made m, s.zone_basic z, s.distance d,
+                                     s.action_type a, s.game_date g, s.period q,
+                                     CASE WHEN g.home_team_id = s.team_id THEN 1 ELSE 0 END h
+                              FROM shots s LEFT JOIN games g USING (game_id)
+                              WHERE {' AND '.join(where)}""", params).fetchall()
     shots = [dict(r) for r in rows]
+
+    league_z = league_zones(season)
+    zones = []
+    if shots:
+        z = pd.DataFrame(shots).groupby("z")["m"].agg(fga="size", fgm="sum").reset_index()
+        for r in z.sort_values("fga", ascending=False).to_dict("records"):
+            zones.append({"zone_basic": r["z"], "fga": int(r["fga"]), "fgm": int(r["fgm"]),
+                          "fg_pct": r["fgm"] / r["fga"],
+                          "league_fg_pct": league_z.get(r["z"], {}).get("fg_pct"),
+                          "no_league_avg": r["z"] in metrics.NO_LEAGUE_AVG_ZONES})
 
     hexes = []
     if shots:
@@ -277,7 +309,9 @@ def player_shots(player_id: int, season: str | None = None):
                 "fga": int(h["fga"]), "fgm": int(h["fgm"]),
                 "league_pct": round(float(lg["fgm"] / lg["fga"]), 4) if lg is not None else None,
             })
-    return {"season": season, "hex_radius": metrics.HEX_R, "shots": shots, "hexes": hexes}
+    return {"season": season, "hex_radius": metrics.HEX_R, "shots": shots, "hexes": hexes, "zones": zones,
+            "games": len({s["g"] for s in shots}),
+            "filters": {"last": last, "period": period, "loc": loc}}
 
 
 @app.get("/api/players/{player_id}/games")

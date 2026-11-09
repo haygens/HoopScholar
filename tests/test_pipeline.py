@@ -103,8 +103,43 @@ def test_backfill_then_nightly():
     assert {b for _, b, _ in sim} <= set(q.index)
     games = conn.execute("SELECT COUNT(*) FROM games WHERE home_team_id IS NULL OR away_team_id IS NULL").fetchone()[0]
     assert games == 0
+    check_api(path, int(q.index[0]))
     print(f"ok: backfill {n1} shots, nightly -> {n2}, {len(q)} qualified players")
 
+
+
+
+def check_api(path, pid):
+    """The site's endpoints against the database the pipeline just built."""
+    import warnings
+    from hoopscholar import config
+    warnings.simplefilter("ignore")
+    from fastapi.testclient import TestClient
+    import api.main as site
+    config.DB_PATH = path
+    site._local.__dict__.clear()   # drop any connection to another database
+    site._cache.clear()
+    t = TestClient(site.app)
+    get = lambda url, **p: t.get(url, params=p).json()
+
+    shots = lambda **f: len(get(f"/api/players/{pid}/shots", **f)["shots"])
+    total = shots()
+    assert total > 0
+    assert shots(loc="home") + shots(loc="away") == total
+    assert sum(shots(period=p) for p in "1234") + shots(period="OT") == total
+    assert get(f"/api/players/{pid}/shots", last=1)["games"] == 1
+    assert sum(z["fga"] for z in get(f"/api/players/{pid}/shots")["zones"]) == total
+
+    g = get(f"/api/players/{pid}/games")
+    assert g["available"] and g["games"] and "roll_pts" in g["games"][-1]
+    c = get(f"/api/players/{pid}/career")
+    assert c["seasons"] and all(len(m["cells"]) == len(c["seasons"]) for m in c["metrics"])
+    p = get(f"/api/players/{pid}")
+    assert len(p["similar"]) == 5
+    abbr = p["stats"]["team_abbr"]
+    team = get(f"/api/teams/{abbr}")
+    assert any(r["player_id"] == pid for r in team["roster"])
+    assert any(x["kind"] == "team" for x in get("/api/search", q=abbr))
 
 
 def test_every_stat_has_a_tooltip():
