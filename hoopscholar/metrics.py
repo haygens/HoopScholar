@@ -175,17 +175,48 @@ def season_frame(conn, season: str) -> pd.DataFrame:
         df["tov_pct"] = np.nan
     plays = df["fga"] + 0.44 * df["fta"] + df["tov"]
     df["tov_pct"] = df["tov_pct"].fillna(100 * df["tov"] / plays.where(plays > 0))
+    df["tov_opps"] = df["gp"] * plays  # season turnover opportunities, from the per-game line
     max_gp = df["gp"].max() or 0
     df["qualified"] = (df["gp"] >= config.QUAL_GP_SHARE * max_gp) & (df["min"] >= config.QUAL_MIN_MPG)
     return df
 
 
-def pool_min_fga(frame: pd.DataFrame) -> int:
-    """Attempts a player needs in a zone to be in that zone's percentile pool:
-    ZONE_MIN_FGA scaled by how far the season is (league max GP / 82), with a floor."""
+def scaled_min(frame: pd.DataFrame, full_season: int, floor: int) -> int:
+    """A full-season minimum scaled by how far the season is (league max GP / 82),
+    never below floor or above the full-season value."""
     max_gp = frame["gp"].max() if len(frame) else 0
     progress = min(1.0, (max_gp or 0) / config.SEASON_GAMES)
-    return max(config.ZONE_POOL_FLOOR, min(config.ZONE_MIN_FGA, round(config.ZONE_MIN_FGA * progress)))
+    return max(floor, min(full_season, round(full_season * progress)))
+
+
+def pool_min_fga(frame: pd.DataFrame) -> int:
+    """Attempts a player needs in a zone to be in that zone's percentile pool."""
+    return scaled_min(frame, config.ZONE_MIN_FGA, config.ZONE_POOL_FLOOR)
+
+
+def min_tov_opps(frame: pd.DataFrame) -> int:
+    """Turnover opportunities (FGA + 0.44*FTA + TOV) a player needs to be ranked on TOV%."""
+    return scaled_min(frame, config.TOV_MIN_OPPS, config.TOV_OPPS_FLOOR)
+
+
+def rank_mask(rows: pd.DataFrame, m: Metric, frame: pd.DataFrame) -> pd.Series:
+    """Which of `rows` may be ranked on metric m (leaderboards): zone stats need
+    the zone pool's attempt minimum, TOV% needs min_tov_opps(). Minimums come
+    from the whole season `frame`, so filtering rows first doesn't change them."""
+    if m.sample_col:
+        return sample_ok(rows, m, pool_min_fga(frame))
+    if m.key == "tov_pct" and "tov_opps" in rows:
+        return rows["tov_opps"].fillna(0) >= min_tov_opps(frame)
+    return pd.Series(True, index=rows.index)
+
+
+def rank_minimum(m: Metric, frame: pd.DataFrame) -> dict | None:
+    """The minimum rank_mask() applies to m, for display ('min 53 plays')."""
+    if m.sample_col:
+        return {"value": pool_min_fga(frame), "unit": "attempts in that zone"}
+    if m.key == "tov_pct":
+        return {"value": min_tov_opps(frame), "unit": "turnover opportunities (FGA + 0.44×FTA + TOV)"}
+    return None
 
 
 def sample_ok(frame: pd.DataFrame, m: Metric, min_fga: int) -> pd.Series:
@@ -231,10 +262,11 @@ def percentiles(frame: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def top_percentiles(row: pd.Series, prow: pd.Series, n: int = 3) -> list[dict]:
+def top_percentiles(row: pd.Series, prow: pd.Series, n: int = 3, tov_min: float | None = None) -> list[dict]:
     """A player's n best slider percentiles (row from season_frame, prow from
     percentiles()). Zone stats under ZONE_MIN_FGA attempts are skipped so a
-    3-for-3 corner shooter's '100' isn't billed as a strength. Ties keep
+    3-for-3 corner shooter's '100' isn't billed as a strength, and so is TOV%
+    under tov_min turnover opportunities (pass min_tov_opps(frame)). Ties keep
     METRICS order."""
     found = []
     for m in METRICS:
@@ -244,6 +276,10 @@ def top_percentiles(row: pd.Series, prow: pd.Series, n: int = 3) -> list[dict]:
         if m.sample_col:
             attempts = row.get(m.sample_col)
             if attempts is None or pd.isna(attempts) or attempts < config.ZONE_MIN_FGA:
+                continue
+        if m.key == "tov_pct" and tov_min is not None:
+            opps = row.get("tov_opps")
+            if opps is None or pd.isna(opps) or opps < tov_min:
                 continue
         found.append({"key": m.key, "label": m.label, "fmt": m.fmt,
                       "value": float(row[m.key]), "percentile": int(p)})

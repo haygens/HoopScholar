@@ -86,7 +86,7 @@ async function renderLeaderboard(params) {
       <label>Stat <select id="lb-stat">${statOptions}</select></label>
       <label>Season <select id="lb-season">${META.seasons.map((s) => `<option ${s === season ? "selected" : ""}>${s}</option>`).join("")}</select></label>
       <label><input type="checkbox" id="lb-q" ${qualified ? "checked" : ""}> Qualified only</label>
-      <span class="muted">Qualified = ${Math.round(META.qualification.gp_share * 100)}% of max games played and ${META.qualification.min_mpg}+ MPG</span>
+      <span class="muted">Qualified = ${Math.round(META.qualification.gp_share * 100)}% of max games played and ${META.qualification.min_mpg}+ MPG${data.minimum ? ` · ranked only with ${data.minimum.value}+ ${esc(data.minimum.unit)} (scales with the season)` : ""}</span>
     </div>
     <div class="card table-wrap">
       <table>

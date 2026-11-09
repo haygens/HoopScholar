@@ -24,6 +24,12 @@ ZONE_MIN_FGA = int(os.environ.get("HOOP_ZONE_MIN_FGA", "25"))
 # reference pool uses ZONE_MIN_FGA scaled by season progress, never below this.
 ZONE_POOL_FLOOR = int(os.environ.get("HOOP_ZONE_POOL_FLOOR", "5"))
 SEASON_GAMES = 82
+# TOV% is only ranked (leaderboard, team-page top-3 chips) for players with at
+# least this many turnover opportunities (FGA + 0.44*FTA + TOV) over a full
+# season, scaled by season progress like the zone minimum, never below the floor.
+# 400 is about 5 plays a game; it keeps 0-turnover small samples off the top.
+TOV_MIN_OPPS = int(os.environ.get("HOOP_TOV_MIN_OPPS", "400"))
+TOV_OPPS_FLOOR = int(os.environ.get("HOOP_TOV_OPPS_FLOOR", "30"))
 # Below this league-leading games-played total, the player page warns that
 # percentiles are early-season numbers.
 EARLY_SEASON_GP = int(os.environ.get("HOOP_EARLY_SEASON_GP", "15"))

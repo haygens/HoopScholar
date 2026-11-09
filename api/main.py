@@ -157,13 +157,14 @@ def team(abbr: str, season: str | None = None):
     frame, pcts = season_data(season)
     roster = frame[frame["team_abbr"] == t["abbr"]].sort_values("min", ascending=False)
     pidx = pcts.set_index("player_id")
+    tov_min = metrics.min_tov_opps(frame)
     rows = []
     for _, r in roster.iterrows():
         rows.append({
             **{k: clean(r.get(k)) for k in ("player_id", "full_name", "position", "gp", "min",
                                              "pts", "reb", "ast", "ts_pct")},
             "qualified": bool(r["qualified"]),
-            "top": metrics.top_percentiles(r, pidx.loc[r["player_id"]]),
+            "top": metrics.top_percentiles(r, pidx.loc[r["player_id"]], tov_min=tov_min),
         })
     return {"team": dict(t), "season": season, "seasons": team_seasons, "roster": rows}
 
@@ -178,8 +179,7 @@ def leaderboard(stat: str = "pts", season: str | None = None, qualified: bool = 
     m = metrics.SORTABLE[stat]
     df = frame[frame["qualified"]] if qualified else frame
     df = df.dropna(subset=[stat])
-    if m.sample_col:  # zone FG%: same attempt minimum as the percentile pool
-        df = df[metrics.sample_ok(df, m, metrics.pool_min_fga(frame))]
+    df = df[metrics.rank_mask(df, m, frame)]  # zone FG% and TOV%: sample minimums
     ascending = (not m.higher_better) if asc is None else asc
     df = df.sort_values(stat, ascending=ascending).head(limit)
     pct_lookup = pcts.set_index("player_id")[stat] if stat in pcts else None
@@ -191,7 +191,8 @@ def leaderboard(stat: str = "pts", season: str | None = None, qualified: bool = 
         row["value"] = row[stat]
         row["percentile"] = clean(pct_lookup.get(r["player_id"])) if pct_lookup is not None else None
         out.append(row)
-    return {"season": season, "stat": stat, "qualified_only": qualified, "rows": out}
+    return {"season": season, "stat": stat, "qualified_only": qualified, "rows": out,
+            "minimum": metrics.rank_minimum(m, frame)}
 
 
 @app.get("/api/players/{player_id}")

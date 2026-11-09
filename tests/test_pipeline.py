@@ -169,5 +169,22 @@ def test_rolling_trends():
     assert metrics.rolling_trends(g.iloc[:0]).empty
 
 
+
+def test_tov_pct_needs_enough_plays():
+    import pandas as pd
+    from hoopscholar import config
+    frame = pd.DataFrame({"gp": [11, 11, 6], "tov_pct": [0.0, 9.0, 0.0], "tov_opps": [50.0, 120.0, 26.0]})
+    m = metrics.METRIC_BY_KEY["tov_pct"]
+    need = metrics.min_tov_opps(frame)
+    assert need == max(config.TOV_OPPS_FLOOR, round(config.TOV_MIN_OPPS * 11 / 82))
+    assert metrics.rank_mask(frame, m, frame).tolist() == [False, True, False]
+    full = frame.assign(gp=[82, 82, 82])
+    assert metrics.min_tov_opps(full) == config.TOV_MIN_OPPS        # full season: the full minimum
+    row = pd.Series({"tov_pct": 0.0, "tov_opps": 26.0, "pts": 5.0})
+    prow = pd.Series({"tov_pct": 100.0, "pts": 40.0})
+    assert [t["key"] for t in metrics.top_percentiles(row, prow, tov_min=need)] == ["pts"]
+    assert metrics.top_percentiles(row, prow)[0]["key"] == "tov_pct"    # no minimum given: unchanged
+
+
 if __name__ == "__main__":
     test_backfill_then_nightly()

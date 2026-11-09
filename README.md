@@ -100,6 +100,9 @@ lists only the libraries the website needs; `requirements.txt` stays the full lo
   labels them "not qualified".
 - **TOV%** is 100 × TOV / (FGA + 0.44 × FTA + TOV) from season totals. It's not NBA.com's `TM_TOV_PCT`,
   which also puts assists in the denominator. Raw turnovers per game stay in the season stats table and leaderboard.
+  The TOV% leaderboard and team-page chips only rank players with 400+ turnover opportunities
+  (FGA + 0.44 × FTA + TOV) over a full season, scaled by league max GP / 82 (never below 30;
+  `HOOP_TOV_MIN_OPPS`, `HOOP_TOV_OPPS_FLOOR`), so a 0-turnover small sample can't top the list.
 - **Schema changes** go in `schema.sql` only: `db.migrate()` runs from `backfill.py` and `nightly.py` and adds any
   missing column to an older database. The API works with an older database too (missing columns show as "—" or fall back).
 - **Zone FG%** (rim, mid-range, corner 3) is shown for any number of attempts. Under 25 attempts
