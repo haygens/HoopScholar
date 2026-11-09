@@ -47,8 +47,12 @@ def ingest_season_stats(conn, season: str) -> int:
 
 
 def finish(conn, season: str, kind: str, detail: str) -> None:
-    n = metrics.refresh_shot_profiles(conn, season)
-    print(f"shot profiles: {n}")
+    # Rebuild every stored season, not just this one: it's local SQL (no
+    # network), and it keeps older seasons in step when the profile logic changes.
+    stored = [r[0] for r in conn.execute("SELECT DISTINCT season FROM shots ORDER BY season")]
+    for s in sorted(set(stored) | {season}):
+        n = metrics.refresh_shot_profiles(conn, s)
+        print(f"shot profiles {s}: {n}")
     db.set_meta(conn, "last_updated", db.now_iso())
     db.set_meta(conn, "data_source", "nba.com")
     db.log_run(conn, kind, season, detail)

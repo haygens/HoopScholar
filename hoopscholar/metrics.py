@@ -15,6 +15,7 @@ class Metric:
     group: str
     fmt: str = "num1"            # 'num1' 12.3 | 'pct' 0.583 -> 58.3% | 'int'
     higher_better: bool = True
+    sample_col: str | None = None  # attempts behind a rate stat (low-sample handling)
 
 
 # What shows up as Savant-style percentile sliders, in display order.
@@ -22,10 +23,10 @@ METRICS: list[Metric] = [
     Metric("pts", "Points", "Scoring"),
     Metric("ts_pct", "True Shooting %", "Scoring", "pct"),
     Metric("usg_pct", "Usage %", "Scoring", "pct"),
-    Metric("rim_fg_pct", "Rim FG%", "Shooting", "pct"),
-    Metric("mid_fg_pct", "Mid-Range FG%", "Shooting", "pct"),
+    Metric("rim_fg_pct", "Rim FG%", "Shooting", "pct", sample_col="rim_fga"),
+    Metric("mid_fg_pct", "Mid-Range FG%", "Shooting", "pct", sample_col="mid_fga"),
     Metric("fg3_pct", "3PT%", "Shooting", "pct"),
-    Metric("corner3_pct", "Corner 3 %", "Shooting", "pct"),
+    Metric("corner3_pct", "Corner 3 %", "Shooting", "pct", sample_col="corner3_fga"),
     Metric("ft_pct", "FT%", "Shooting", "pct"),
     Metric("ast", "Assists", "Playmaking"),
     Metric("ast_pct", "Assist %", "Playmaking", "pct"),
@@ -57,13 +58,13 @@ SORTABLE = {m.key: m for m in METRICS + LEADERBOARD_EXTRA}
 # ---------------------------------------------------------------- shot profiles
 
 def refresh_shot_profiles(conn, season: str) -> int:
-    """Rebuild player_shot_profile for a season from the shots table."""
-    m = config.ZONE_MIN_FGA
+    """Rebuild player_shot_profile for a season from the shots table.
 
+    Zone percentages are stored for any number of attempts (NULL only at 0);
+    small samples are flagged when read, see low_sample_mask()."""
     def pct(zone_cond: str) -> str:
-        return (f"CASE WHEN SUM(CASE WHEN {zone_cond} THEN 1 ELSE 0 END) >= {m} "
-                f"THEN 1.0 * SUM(CASE WHEN {zone_cond} THEN made ELSE 0 END) / "
-                f"SUM(CASE WHEN {zone_cond} THEN 1 ELSE 0 END) END")
+        return (f"1.0 * SUM(CASE WHEN {zone_cond} THEN made ELSE 0 END) / "
+                f"NULLIF(SUM(CASE WHEN {zone_cond} THEN 1 ELSE 0 END), 0)")
 
     def cnt(zone_cond: str) -> str:
         return f"SUM(CASE WHEN {zone_cond} THEN 1 ELSE 0 END)"
@@ -77,6 +78,8 @@ def refresh_shot_profiles(conn, season: str) -> int:
     conn.execute("DELETE FROM player_shot_profile WHERE season = ?", (season,))
     conn.execute(f"""
         INSERT INTO player_shot_profile
+            (player_id, season, fga, avg_distance, rim_fga, rim_fg_pct, paint_fga, paint_fg_pct,
+             mid_fga, mid_fg_pct, corner3_fga, corner3_pct, atb3_fga, atb3_pct, rim_rate, three_rate)
         SELECT player_id, season, COUNT(*), AVG(distance),
                {cnt(rim)}, {pct(rim)}, {cnt(paint)}, {pct(paint)},
                {cnt(mid)}, {pct(mid)}, {cnt(corner)}, {pct(corner)},
@@ -116,7 +119,8 @@ def season_frame(conn, season: str) -> pd.DataFrame:
     df = pd.read_sql_query("""
         SELECT s.*, p.full_name, p.position,
                sp.avg_distance, sp.rim_fg_pct, sp.mid_fg_pct, sp.corner3_pct, sp.atb3_pct,
-               sp.paint_fg_pct, sp.rim_rate, sp.three_rate
+               sp.paint_fg_pct, sp.rim_rate, sp.three_rate,
+               sp.rim_fga, sp.mid_fga, sp.corner3_fga
         FROM player_season_stats s
         JOIN players p USING (player_id)
         LEFT JOIN player_shot_profile sp USING (player_id, season)
@@ -130,14 +134,40 @@ def season_frame(conn, season: str) -> pd.DataFrame:
     return df
 
 
+def pool_min_fga(frame: pd.DataFrame) -> int:
+    """Attempts a player needs in a zone to be in that zone's percentile pool:
+    ZONE_MIN_FGA scaled by how far the season is (league max GP / 82), with a floor."""
+    max_gp = frame["gp"].max() if len(frame) else 0
+    progress = min(1.0, (max_gp or 0) / config.SEASON_GAMES)
+    return max(config.ZONE_POOL_FLOOR, min(config.ZONE_MIN_FGA, round(config.ZONE_MIN_FGA * progress)))
+
+
+def sample_ok(frame: pd.DataFrame, m: Metric, min_fga: int) -> pd.Series:
+    """True where the player has enough attempts behind metric m (always True
+    for metrics without a sample column)."""
+    if m.sample_col is None or m.sample_col not in frame:
+        return pd.Series(True, index=frame.index)
+    return frame[m.sample_col].fillna(0) >= min_fga
+
+
+def low_sample_mask(frame: pd.DataFrame, m: Metric) -> pd.Series:
+    """Rate stats with a value but fewer than ZONE_MIN_FGA attempts (shown with a badge)."""
+    return frame[m.key].notna() & ~sample_ok(frame, m, config.ZONE_MIN_FGA) if m.key in frame         else pd.Series(False, index=frame.index)
+
+
 def percentiles(frame: pd.DataFrame) -> pd.DataFrame:
     """Percentile (0-100) of every player on every METRIC, ranked against
-    qualified players only. Lower-is-better metrics are flipped so 100 is always good."""
-    pool = frame[frame["qualified"]]
+    qualified players only. Lower-is-better metrics are flipped so 100 is always good.
+
+    Zone rate stats rank against qualified players with at least pool_min_fga()
+    attempts there, so a 3-for-3 corner shooter can't distort everyone else's
+    rank. Players below that still get a percentile against that pool."""
     out = pd.DataFrame({"player_id": frame["player_id"]})
+    min_fga = pool_min_fga(frame)
     for m in METRICS:
         if m.key not in frame:
             continue
+        pool = frame[frame["qualified"] & sample_ok(frame, m, min_fga)]
         ref = np.sort(pool[m.key].dropna().to_numpy())
         vals = frame[m.key].to_numpy(dtype=float)
         if len(ref) < 2:

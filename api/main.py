@@ -114,6 +114,7 @@ def meta():
         "metrics": metric_meta(metrics.METRICS),
         "sortable": metric_meta(metrics.SORTABLE.values()),
         "qualification": {"gp_share": config.QUAL_GP_SHARE, "min_mpg": config.QUAL_MIN_MPG},
+        "zone_min_fga": config.ZONE_MIN_FGA,
     }
 
 
@@ -139,6 +140,8 @@ def leaderboard(stat: str = "pts", season: str | None = None, qualified: bool = 
     m = metrics.SORTABLE[stat]
     df = frame[frame["qualified"]] if qualified else frame
     df = df.dropna(subset=[stat])
+    if m.sample_col:  # zone FG%: same attempt minimum as the percentile pool
+        df = df[metrics.sample_ok(df, m, metrics.pool_min_fga(frame))]
     ascending = (not m.higher_better) if asc is None else asc
     df = df.sort_values(stat, ascending=ascending).head(limit)
     pct_lookup = pcts.set_index("player_id")[stat] if stat in pcts else None
@@ -171,8 +174,14 @@ def player(player_id: int, season: str | None = None):
 
     sliders = []
     for m in metrics.METRICS:
+        sample = clean(row.get(m.sample_col)) if m.sample_col else None
+        sample = int(sample) if sample is not None else None
+        value = clean(row.get(m.key))
         sliders.append({"key": m.key, "label": m.label, "group": m.group, "fmt": m.fmt,
-                        "value": clean(row.get(m.key)), "percentile": clean(prow.get(m.key))})
+                        "value": value, "percentile": clean(prow.get(m.key)),
+                        "sample": sample,
+                        "low_sample": bool(m.sample_col and value is not None
+                                           and (sample or 0) < config.ZONE_MIN_FGA)})
 
     zones_league = league_zones(season)
     zones = c.execute("""SELECT zone_basic, COUNT(*) fga, SUM(made) fgm, AVG(made) fg_pct

@@ -99,7 +99,12 @@ lists only the libraries the website needs; `requirements.txt` stays the full lo
   are flipped so red always means good. Players who don't qualify still get a percentile, but the page
   labels them "not qualified".
 - **League zone FG%** is total made / total attempted over every league shot in that zone. Backcourt has no league average: NBA.com's official FGA leaves out most missed end-of-period heaves, so the few that remain are mostly makes.
-- **Zone FG%** (rim, mid-range, corner 3) needs at least 25 attempts (`HOOP_ZONE_MIN_FGA`), otherwise it shows "—".
+- **Zone FG%** (rim, mid-range, corner 3) is shown for any number of attempts. Under 25 attempts
+  (`HOOP_ZONE_MIN_FGA`) the slider gets a "low sample" badge. Each zone's percentile pool is the qualified
+  players with at least 25 × (league max GP / 82) attempts there (never below 5, `HOOP_ZONE_POOL_FLOOR`), so
+  tiny samples don't distort everyone else's rank but the pool isn't empty in November. Zone leaderboards use the same minimum.
+- **League zone FG%** is total made / total attempted over every league shot in that zone. Backcourt has no
+  league average: NBA.com's official FGA leaves out most missed end-of-period heaves, so the few left are mostly makes.
 - **Hot zones** bin shots into 2 ft hexagons and color each by the player's FG% minus the
   league's FG% *from that same hexagon*. Small samples are pulled toward league average
   (8 phantom league-average attempts) so a 2-for-3 hex doesn't light up.

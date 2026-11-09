@@ -18,8 +18,12 @@ SEASON_TYPE = "Regular Season"
 # of the league-leading games played AND at least this many minutes per game.
 QUAL_GP_SHARE = float(os.environ.get("HOOP_QUAL_GP_SHARE", "0.5"))
 QUAL_MIN_MPG = float(os.environ.get("HOOP_QUAL_MIN_MPG", "15"))
-# Zone shooting percentages need a minimum sample to count.
+# Zone shooting percentages below this many attempts get a "low sample" badge.
 ZONE_MIN_FGA = int(os.environ.get("HOOP_ZONE_MIN_FGA", "25"))
+# Early in the season almost nobody reaches ZONE_MIN_FGA, so the percentile
+# reference pool uses ZONE_MIN_FGA scaled by season progress, never below this.
+ZONE_POOL_FLOOR = int(os.environ.get("HOOP_ZONE_POOL_FLOOR", "5"))
+SEASON_GAMES = 82
 
 
 def season_for_date(d: _dt.date) -> str:

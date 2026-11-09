@@ -79,6 +79,12 @@ def test_backfill_then_nightly():
     assert pct.loc[q.index, "pts"].min() == 0 and pct.loc[q.index, "pts"].max() == 100
     best_tov = q["tov"].idxmin()
     assert pct.loc[best_tov, "tov"] == 100
+    # Zone FG% is stored at any sample size; low samples are flagged and kept out of the pool
+    rim = metrics.METRIC_BY_KEY["rim_fg_pct"]
+    small = frame[(frame["rim_fga"] > 0) & (frame["rim_fga"] < 25)]
+    assert len(small) and small["rim_fg_pct"].notna().all()
+    assert metrics.low_sample_mask(frame, rim)[small.index].all()
+    assert not pct.loc[small["player_id"], "rim_fg_pct"].isna().any()
     games = conn.execute("SELECT COUNT(*) FROM games WHERE home_team_id IS NULL OR away_team_id IS NULL").fetchone()[0]
     assert games == 0
     print(f"ok: backfill {n1} shots, nightly -> {n2}, {len(q)} qualified players")

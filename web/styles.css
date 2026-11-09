@@ -102,3 +102,5 @@ td a:hover { text-decoration: underline; }
 .page-title { font-size: 28px; margin: 0 0 16px; letter-spacing: -0.02em; }
 
 .note { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
+.badge { display: inline-block; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; padding: 0 5px; border-radius: 4px; background: #fdf0d5; color: #8a5a00; vertical-align: 1px; }
+.prow .label .badge { display: table; margin-top: 1px; line-height: 13px; }

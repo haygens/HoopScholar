@@ -195,7 +195,7 @@ function slider(x) {
   const c = pctColor(x.percentile);
   return `
     <div class="prow ${has ? "" : "na"}">
-      <div class="label">${esc(x.label)}</div>
+      <div class="label">${esc(x.label)}${x.low_sample ? ` <span class="badge" title="Only ${x.sample} attempts (under ${META.zone_min_fga}); treat this percentile as noisy">low sample</span>` : ""}</div>
       <div class="track">
         <div class="mid"></div>
         ${has ? `<div class="fill" style="width:${p}%;background:${c}"></div>
