@@ -280,6 +280,63 @@ def player_shots(player_id: int, season: str | None = None):
     return {"season": season, "hex_radius": metrics.HEX_R, "shots": shots, "hexes": hexes}
 
 
+@app.get("/api/players/{player_id}/games")
+def player_games(player_id: int, season: str | None = None):
+    """Game log for one season, oldest first, with each game's TS% and the
+    rolling 5-game PTS and TS% (TS% from 5-game totals, not an average of
+    single-game percentages)."""
+    season = resolve_season(season)
+    try:
+        df = pd.read_sql_query("""
+            SELECT l.game_id, g.game_date, l.team_id,
+                   CASE WHEN g.home_team_id = l.team_id THEN 1 ELSE 0 END AS home,
+                   CASE WHEN g.home_team_id = l.team_id THEN ta.abbr ELSE th.abbr END AS opp,
+                   CASE WHEN g.home_team_id = l.team_id THEN g.home_pts - g.away_pts
+                        ELSE g.away_pts - g.home_pts END AS margin,
+                   l.min, l.pts, l.reb, l.ast, l.stl, l.blk, l.tov,
+                   l.fgm, l.fga, l.fg3m, l.fg3a, l.ftm, l.fta, l.plus_minus
+            FROM player_game_logs l
+            JOIN games g USING (game_id)
+            LEFT JOIN teams th ON th.team_id = g.home_team_id
+            LEFT JOIN teams ta ON ta.team_id = g.away_team_id
+            WHERE l.player_id = ? AND l.season = ?
+            ORDER BY g.game_date, l.game_id""", conn(), params=(player_id, season))
+    except pd.errors.DatabaseError:  # older database without player_game_logs
+        return {"season": season, "available": False, "window": metrics.TREND_WINDOW, "games": []}
+    df = metrics.rolling_trends(df)
+    games = [{k: clean(v) for k, v in r.items()} for r in df.to_dict("records")]
+    return {"season": season, "available": True, "window": metrics.TREND_WINDOW, "games": games}
+
+
+@app.get("/api/players/{player_id}/career")
+def player_career(player_id: int):
+    """Every slider's percentile in every season the player has stats, each
+    ranked against that season's qualified pool."""
+    player_seasons = [r[0] for r in conn().execute(
+        "SELECT season FROM player_season_stats WHERE player_id=? ORDER BY season", (player_id,))]
+    if not player_seasons:
+        raise HTTPException(404, "No stats for this player")
+    by_season, qualified = {}, {}
+    for s in player_seasons:
+        frame, pcts = season_data(s)
+        row = frame[frame["player_id"] == player_id].iloc[0]
+        prow = pcts[pcts["player_id"] == player_id].iloc[0]
+        qualified[s] = bool(row["qualified"])
+        by_season[s] = (row, prow)
+    out = []
+    for m in metrics.METRICS:
+        cells = []
+        for s in player_seasons:
+            row, prow = by_season[s]
+            value = clean(row.get(m.key))
+            sample = clean(row.get(m.sample_col)) if m.sample_col else None
+            cells.append({"season": s, "value": value, "percentile": clean(prow.get(m.key)),
+                          "low_sample": bool(m.sample_col and value is not None
+                                             and (sample or 0) < config.ZONE_MIN_FGA)})
+        out.append({"key": m.key, "label": m.label, "group": m.group, "fmt": m.fmt, "cells": cells})
+    return {"seasons": player_seasons, "qualified": qualified, "metrics": out}
+
+
 # ------------------------------------------------------------------ static site
 
 WEB = ROOT / "web"

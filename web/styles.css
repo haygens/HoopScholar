@@ -146,3 +146,34 @@ tr.nq td { color: var(--muted); }
 .track .dot.vs.low { opacity: .6; }
 .vs-val { display: block; font-size: 11px; line-height: 1.2; font-weight: 600; color: #1f2430; }
 .similar .cmp-link { font-size: 11px; font-weight: 400; color: var(--muted); }
+
+/* ---------- player tabs */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: -6px 0 18px; }
+.tabs a { padding: 8px 14px; font-size: 14px; font-weight: 600; text-decoration: none; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tabs a:hover { color: var(--ink); }
+.tabs a.on { color: var(--ink); border-bottom-color: var(--accent); }
+.seg.small { margin: -4px 0 12px; }
+.seg.small button { padding: 4px 10px; font-size: 12px; }
+
+/* ---------- trend charts (dataviz marks: 2px line, r=4 dots with a 2px surface ring, 1px solid grid) */
+.chart-sub { margin: -8px 0 8px; }
+.chart-wrap { position: relative; }
+svg.trend { display: block; width: 100%; height: auto; overflow: visible; }
+svg.trend:focus-visible { outline: 2px solid #3661ad; outline-offset: 4px; border-radius: 4px; }
+svg.trend .grid { stroke: #eceef1; stroke-width: 1; }
+svg.trend .axis { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+svg.trend .game-dot { fill: var(--accent); fill-opacity: .45; stroke: #fff; stroke-width: 2; }
+svg.trend .roll { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+svg.trend .roll-end { fill: var(--accent); stroke: #fff; stroke-width: 2; }
+svg.trend .end-label { fill: var(--ink); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+svg.trend .xhair { stroke: #9aa3af; stroke-width: 1; }
+.chart-tip { position: absolute; top: -6px; z-index: 5; pointer-events: none; padding: 6px 10px; border-radius: 6px;
+  background: #fff; border: 1px solid var(--line); box-shadow: 0 4px 14px rgba(0,0,0,.12); font-size: 12px; line-height: 1.45; white-space: nowrap; }
+.chart-tip strong { font-size: 14px; font-variant-numeric: tabular-nums; }
+.chart-tip .tt-head, .chart-tip .tt-sub { color: var(--muted); }
+
+/* ---------- career tab */
+table.career td { vertical-align: middle; }
+table.career .cv { font-size: 12px; color: var(--muted); margin-right: 6px; font-variant-numeric: tabular-nums; }
+table.career .chip.low { opacity: .6; }
+table.career tr.grp td { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; padding-top: 14px; background: none; }

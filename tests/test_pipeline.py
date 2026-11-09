@@ -39,6 +39,9 @@ def fake_fetchers(cutoff: str):
         shots[shots["TEAM_ID"] == team_id], "_iso", date_from).drop(columns="_iso")
     fetch.player_stats = lambda season, measure="Base", per_mode="PerGame": base if measure == "Base" else adv
     fetch.player_tracking = lambda season, measure="SpeedDistance": track
+    plog = make_demo_data.player_game_log(shots.drop(columns="_iso"))
+    fetch.player_game_log = lambda season, date_from=None: since(plog, "GAME_DATE", date_from)
+    fake_fetchers.player_logs = len(plog)
     return shots
 
 
@@ -55,9 +58,12 @@ def test_backfill_then_nightly():
     first = fake_fetchers("2025-12-15")
     pipeline.ingest_reference(conn, SEASON)
     pipeline.ingest_games(conn, SEASON)
+    pipeline.ingest_player_games(conn, SEASON)
     pipeline.ingest_shots(conn, SEASON)
     pipeline.ingest_season_stats(conn, SEASON)
     pipeline.finish(conn, SEASON, "backfill", "test")
+    logs1 = conn.execute("SELECT COUNT(*) FROM player_game_logs").fetchone()[0]
+    assert logs1 == fake_fetchers.player_logs, (logs1, fake_fetchers.player_logs)
     n1 = conn.execute("SELECT COUNT(*) FROM shots").fetchone()[0]
     assert n1 == len(first), (n1, len(first))
     assert pipeline.last_game_date(conn, SEASON) <= "2025-12-15"
@@ -66,8 +72,11 @@ def test_backfill_then_nightly():
     later = fake_fetchers("2026-01-15")
     last = pipeline.last_game_date(conn, SEASON)
     pipeline.ingest_games(conn, SEASON, pipeline.day_before(last))
+    pipeline.ingest_player_games(conn, SEASON)   # picks its own start date
     pipeline.ingest_shots(conn, SEASON, pipeline.day_before(last))
     pipeline.finish(conn, SEASON, "nightly", "test")
+    logs2 = conn.execute("SELECT COUNT(*) FROM player_game_logs").fetchone()[0]
+    assert logs2 == fake_fetchers.player_logs > logs1, (logs2, fake_fetchers.player_logs, logs1)
     n2 = conn.execute("SELECT COUNT(*) FROM shots").fetchone()[0]
     assert n2 == len(later), (n2, len(later))
     assert n2 > n1
@@ -112,6 +121,17 @@ def test_top_percentiles_skips_low_sample_zones():
     assert [t["key"] for t in top] == ["pts", "ast", "stl"]  # 3-attempt corner 3 left out; ties keep slider order
     row["corner3_fga"] = 40
     assert metrics.top_percentiles(row, prow)[0]["key"] == "corner3_pct"
+
+
+
+def test_rolling_trends():
+    import pandas as pd
+    g = pd.DataFrame({"pts": [10, 20, 30, 40, 50, 0], "fga": [10, 10, 10, 10, 10, 0], "fta": [0, 0, 0, 0, 0, 0]})
+    out = metrics.rolling_trends(g)
+    assert out["roll_pts"].isna().sum() == 4 and out["roll_pts"].iloc[4] == 30
+    assert abs(out["roll_ts"].iloc[4] - 150 / 100) < 1e-9      # window totals, not mean of game TS%
+    assert pd.isna(out["ts_pct"].iloc[5])                       # 0 attempts -> no TS%
+    assert metrics.rolling_trends(g.iloc[:0]).empty
 
 
 if __name__ == "__main__":

@@ -35,6 +35,7 @@ def main():
 
     pipeline.ingest_reference(conn, args.season)   # rosters change (trades, signings)
     pipeline.ingest_games(conn, args.season, since)
+    pipeline.ingest_player_games(conn, args.season)
     shots = pipeline.ingest_shots(conn, args.season, since)
     pipeline.ingest_season_stats(conn, args.season)
     pipeline.finish(conn, args.season, "nightly", f"since={since} shots={shots}")

@@ -58,7 +58,7 @@ async function route() {
   const { parts, params } = parseHash();
   window.scrollTo(0, 0);
   try {
-    if (parts[0] === "player" && parts[1]) await renderPlayer(+parts[1], params.get("season"), params.get("vs"));
+    if (parts[0] === "player" && parts[1]) await renderPlayer(+parts[1], params.get("season"), params.get("vs"), params.get("tab"));
     else if (parts[0] === "team" && parts[1]) await renderTeam(parts[1], params.get("season"));
     else await renderLeaderboard(params);
   } catch (e) {
@@ -151,25 +151,11 @@ async function renderTeam(abbr, season) {
 
 // ------------------------------------------------------------------ player page
 
-async function renderPlayer(id, season, vs) {
-  const qs = season ? `?season=${season}` : "";
-  const d = await api(`/api/players/${id}${qs}`);
-  // Comparison player (?vs=ID), same season when they have it; the API falls
-  // back to their latest season otherwise, which the legend then names.
-  const vsId = vs && +vs !== id ? +vs : null;
-  const [shots, o] = await Promise.all([
-    api(`/api/players/${id}/shots?season=${d.season}`),
-    vsId ? api(`/api/players/${vsId}?season=${d.season}`).catch(() => null) : null,
-  ]);
+// Name, bio, tags, season picker and the tab row, shared by all three tabs.
+function playerHead(d, tab, vsId) {
   const p = d.player, s = d.stats;
-  document.title = o ? `${p.full_name} vs ${o.player.full_name} · HoopScholar` : `${p.full_name} · HoopScholar`;
-  const oBy = o ? Object.fromEntries(o.sliders.map((x) => [x.key, { ...x, who: o.player.full_name }])) : {};
-  const here = (extra = "") => `#/player/${id}?season=${d.season}${extra}`;
-
-  const groups = {};
-  d.sliders.forEach((x) => (groups[x.group] ??= []).push(x));
-
-  app.innerHTML = `
+  const link = (t) => `#/player/${p.player_id}?season=${d.season}${t === "overview" ? "" : `&tab=${t}`}${vsId ? `&vs=${vsId}` : ""}`;
+  return `
     <section class="player-head">
       <div>
         <h1>${esc(p.full_name)}</h1>
@@ -177,27 +163,67 @@ async function renderPlayer(id, season, vs) {
       </div>
       <div class="tags">${d.qualified ? `<span class="tag">Qualified · ranked vs ${d.pool_size} players</span>` : `<span class="tag warn">Not qualified · percentiles vs ${d.pool_size} qualified players</span>`}
         ${d.early_season ? `<span class="tag early" title="Percentiles settle down as the season goes on.">Early season · league leader has ${d.league_max_gp} GP, so expect big swings</span>` : ""}</div>
-      <select id="season">${d.seasons.map((x) => `<option ${x === d.season ? "selected" : ""}>${x}</option>`).join("")}</select>
+      <select id="season" aria-label="Season">${d.seasons.map((x) => `<option ${x === d.season ? "selected" : ""}>${x}</option>`).join("")}</select>
     </section>
+    <nav class="tabs" aria-label="Player sections">
+      ${[["overview", "Overview"], ["games", "Game Log"], ["career", "Career"]].map(([t, label]) =>
+        `<a href="${link(t)}" class="${t === tab ? "on" : ""}" ${t === tab ? 'aria-current="page"' : ""}>${label}</a>`).join("")}
+    </nav>`;
+}
+
+// The percentile slider groups for one player-season, with optional overlay.
+function sliderBlock(sliders, oBy = {}) {
+  const groups = {};
+  sliders.forEach((x) => (groups[x.group] ??= []).push(x));
+  return Object.entries(groups).map(([g, rows]) => `
+    <div class="pgroup"><h3>${esc(g)}</h3>
+      ${rows.map((x) => slider(x, oBy[x.key])).join("")}
+    </div>`).join("");
+}
+
+async function renderPlayer(id, season, vs, tab) {
+  const qs = season ? `?season=${season}` : "";
+  const d = await api(`/api/players/${id}${qs}`);
+  const vsId = vs && +vs !== id ? +vs : null;
+  tab = ["games", "career"].includes(tab) ? tab : "overview";
+  const p = d.player;
+  const onSeason = () => $("#season").addEventListener("change", (e) =>
+    (location.hash = `#/player/${id}?season=${e.target.value}${tab === "overview" ? "" : `&tab=${tab}`}${vsId ? `&vs=${vsId}` : ""}`));
+  if (tab === "games") { await renderGameLog(d, vsId); onSeason(); return; }
+  if (tab === "career") { await renderCareer(d, vsId); onSeason(); return; }
+
+  // Comparison player (?vs=ID), same season when they have it; the API falls
+  // back to their latest season otherwise, which the legend then names.
+  const [shots, o] = await Promise.all([
+    api(`/api/players/${id}/shots?season=${d.season}`),
+    vsId ? api(`/api/players/${vsId}?season=${d.season}`).catch(() => null) : null,
+  ]);
+  document.title = o ? `${p.full_name} vs ${o.player.full_name} · HoopScholar` : `${p.full_name} · HoopScholar`;
+  const overlay = (od) => od ? Object.fromEntries(od.sliders.map((x) => [x.key, { ...x, who: od.player.full_name }])) : {};
+  const here = (extra = "") => `#/player/${id}?season=${d.season}${extra}`;
+  // "Last season" toggle: the season before this one, if the player has it.
+  const prevSeason = d.seasons[d.seasons.indexOf(d.season) + 1] || null;
+
+  app.innerHTML = `
+    ${playerHead(d, "overview", vsId)}
 
     <div class="grid two">
       <section class="card">
         <div class="card-head">
-          <h2>${d.season} Percentile Rankings</h2>
+          <h2 id="pct-title">${d.season} Percentile Rankings</h2>
           <div class="picker">
             <input id="cmp" type="search" placeholder="Compare with a player…" autocomplete="off" aria-label="Compare with a player">
             <ul id="cmp-results" class="search-results" hidden></ul>
           </div>
         </div>
+        ${prevSeason ? `<div class="seg small" id="pct-season" role="group" aria-label="Percentiles from">
+          <button data-v="${d.season}" class="on" aria-pressed="true">This season</button><button data-v="${prevSeason}" aria-pressed="false">Last season (${prevSeason})</button></div>` : ""}
         ${o ? `<div class="compare-legend">
           <span><span class="key a"></span>${esc(p.full_name)}</span>
           <span><span class="key b"></span><a href="#/player/${o.player.player_id}?season=${o.season}">${esc(o.player.full_name)}</a>${o.season !== d.season ? ` <span class="muted">(${o.season}, no ${d.season} stats)</span>` : ""}${o.qualified ? "" : ` <span class="badge">not qualified</span>`}</span>
           <a class="clear" href="${here()}">Clear</a>
         </div>` : vsId ? `<p class="note">Couldn't load that comparison player.</p>` : ""}
-        ${Object.entries(groups).map(([g, rows]) => `
-          <div class="pgroup"><h3>${esc(g)}</h3>
-            ${rows.map((x) => slider(x, oBy[x.key])).join("")}
-          </div>`).join("")}
+        <div id="sliders">${sliderBlock(d.sliders, overlay(o))}</div>
       </section>
 
       <section class="card">
@@ -244,7 +270,27 @@ async function renderPlayer(id, season, vs) {
       : `<p class="muted">${d.qualified ? "Not computed yet: runs with the next data update." : "Only computed for qualified players."}</p>`}
     </section>`;
 
-  $("#season").addEventListener("change", (e) => (location.hash = `#/player/${id}?season=${e.target.value}${vsId ? `&vs=${vsId}` : ""}`));
+  onSeason();
+  // Last-season toggle: swaps just the sliders (and any overlay) in place, so
+  // this season's shot chart and tables stay put.
+  const cache = { [d.season]: [d, o] };
+  let want = d.season;
+  $("#pct-season")?.addEventListener("click", async (e) => {
+    const b = e.target.closest("button"); if (!b || b.classList.contains("on")) return;
+    want = b.dataset.v;
+    [...$("#pct-season").children].forEach((x) => { x.classList.toggle("on", x === b); x.setAttribute("aria-pressed", x === b); });
+    $("#sliders").style.opacity = ".5"; // keep the old bars visible while loading
+    const sz = want;
+    cache[sz] ??= await Promise.all([
+      api(`/api/players/${id}?season=${sz}`),
+      vsId ? api(`/api/players/${vsId}?season=${sz}`).catch(() => null) : null,
+    ]);
+    if (sz !== want) return; // a newer click won
+    const [dd, oo] = cache[sz];
+    $("#pct-title").textContent = `${dd.season} Percentile Rankings`;
+    $("#sliders").innerHTML = sliderBlock(dd.sliders, overlay(oo));
+    $("#sliders").style.opacity = "";
+  });
   autocomplete($("#cmp"), $("#cmp-results"), {
     href: (x) => here(`&vs=${x.player_id}`),
     accept: (x) => x.kind === "player" && x.player_id !== id,
@@ -297,6 +343,151 @@ function slider(x, y = null) {
       </div>
       <div class="val">${fmt(x.value, x.fmt)}${y ? `<span class="vs-val">${fmt(y.value, y.fmt)}</span>` : ""}</div>
     </div>`;
+}
+
+// ------------------------------------------------------------------ game log tab
+
+// Chart geometry in SVG units; the SVG scales to its card with the same aspect.
+const TREND = { W: 520, H: 190, L: 40, R: 52, T: 14, B: 26 };
+const xAt = (i, n) => TREND.L + (n <= 1 ? (TREND.W - TREND.L - TREND.R) / 2 : (i * (TREND.W - TREND.L - TREND.R)) / (n - 1));
+const shortDate = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+function niceMax(v) {
+  if (!(v > 0)) return 1;
+  const step = 10 ** Math.floor(Math.log10(v));
+  // tops whose quarters are round numbers (60 -> 15s, 80 -> 20s, 1.0 -> 25%)
+  return [1, 2, 4, 6, 8, 10].map((m) => m * step).find((x) => x >= v);
+}
+
+// One measure across the season: each game a faint dot, the rolling average a
+// 2px line with its latest value labeled at the end. One series, one axis, so
+// no legend box: the card title and subtitle say what's plotted.
+function trendChart(games, m, win) {
+  const { W, H, L, R, T, B } = TREND, n = games.length;
+  const top = niceMax(Math.max(...games.map((g) => Math.max(g[m.key] ?? 0, g[m.roll] ?? 0))));
+  const y = (v) => T + (H - T - B) * (1 - Math.min(v, top) / top);
+  const grid = [0, 0.25, 0.5, 0.75, 1].map((f) => `<line x1="${L}" x2="${W - R}" y1="${y(f * top)}" y2="${y(f * top)}" class="grid"/>
+    <text x="${L - 8}" y="${y(f * top) + 4}" class="axis" text-anchor="end">${m.axis(f * top)}</text>`).join("");
+  const xl = [...new Set([0, Math.floor((n - 1) / 2), n - 1])].map((i) =>
+    `<text x="${xAt(i, n)}" y="${H - 6}" class="axis" text-anchor="${i === 0 && n > 1 ? "start" : i === n - 1 && n > 1 ? "end" : "middle"}">${shortDate(games[i].game_date)}</text>`).join("");
+  const dots = games.map((g, i) => g[m.key] == null ? "" : `<circle cx="${xAt(i, n)}" cy="${y(g[m.key])}" r="4" class="game-dot"/>`).join("");
+  const pts = games.map((g, i) => g[m.roll] == null ? null : `${xAt(i, n).toFixed(1)},${y(g[m.roll]).toFixed(1)}`).filter(Boolean);
+  const lastI = games.map((g) => g[m.roll] != null).lastIndexOf(true);
+  const end = lastI < 0 ? "" : `<circle cx="${xAt(lastI, n)}" cy="${y(games[lastI][m.roll])}" r="4" class="roll-end"/>
+    <text x="${xAt(lastI, n) + 9}" y="${y(games[lastI][m.roll]) + 4}" class="end-label">${m.avg(games[lastI][m.roll])}</text>`;
+  return `<svg class="trend" viewBox="0 0 ${W} ${H}" tabindex="0" role="img"
+      aria-label="${esc(m.label)} by game with a ${win}-game rolling average. Arrow keys step through games.">
+    ${grid}${xl}${dots}${pts.length > 1 ? `<path d="M${pts.join("L")}" class="roll"/>` : ""}${end}
+    <line class="xhair" y1="${T}" y2="${H - B}" visibility="hidden"/>
+  </svg>`;
+}
+
+// Crosshair + tooltip: the pointer snaps to the nearest game, arrow keys step
+// through games when the chart has focus. Text goes in with textContent.
+function wireTrend(wrap, games, m, win) {
+  const svg = wrap.querySelector("svg"), xh = svg.querySelector(".xhair"), box = wrap.querySelector(".chart-tip");
+  const n = games.length;
+  let cur = n - 1;
+  const line = (cls, text) => { const el = document.createElement("div"); el.className = cls; el.textContent = text; return el; };
+  const show = (i) => {
+    cur = i;
+    const g = games[i], X = xAt(i, n);
+    xh.setAttribute("x1", X); xh.setAttribute("x2", X); xh.setAttribute("visibility", "visible");
+    const value = document.createElement("div");
+    const strong = document.createElement("strong");
+    strong.textContent = g[m.key] == null ? "—" : m.val(g[m.key]);
+    value.append(strong, document.createTextNode(` ${m.label}`));
+    box.replaceChildren(line("tt-head", `${shortDate(g.game_date)} ${g.home ? "vs" : "@"} ${g.opp ?? ""}`), value,
+      line("tt-sub", g[m.roll] == null ? `${win}-game average starts at game ${win}` : `${m.avg(g[m.roll])} over the last ${win} games`));
+    box.hidden = false;
+    const r = svg.getBoundingClientRect(), px = (X * r.width) / TREND.W, w = box.offsetWidth;
+    box.style.left = `${Math.min(Math.max(0, px - w / 2), r.width - w)}px`;
+  };
+  const hide = () => { xh.setAttribute("visibility", "hidden"); box.hidden = true; };
+  svg.addEventListener("pointermove", (e) => {
+    const r = svg.getBoundingClientRect(), sx = ((e.clientX - r.left) * TREND.W) / r.width;
+    const step = n > 1 ? (TREND.W - TREND.L - TREND.R) / (n - 1) : 1;
+    show(Math.max(0, Math.min(n - 1, Math.round((sx - TREND.L) / step))));
+  });
+  svg.addEventListener("pointerleave", hide);
+  svg.addEventListener("focus", () => show(cur));
+  svg.addEventListener("blur", hide);
+  svg.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      show(Math.max(0, Math.min(n - 1, cur + (e.key === "ArrowLeft" ? -1 : 1)))); e.preventDefault();
+    }
+  });
+}
+
+const TREND_MEASURES = [
+  { key: "pts", roll: "roll_pts", label: "PTS", title: "Points",
+    axis: (v) => Math.round(v).toString(), val: (v) => Math.round(v).toString(), avg: (v) => v.toFixed(1) },
+  { key: "ts_pct", roll: "roll_ts", label: "TS%", title: "True Shooting %",
+    axis: (v) => `${Math.round(v * 100)}%`, val: (v) => `${(v * 100).toFixed(1)}%`, avg: (v) => `${(v * 100).toFixed(1)}%` },
+];
+
+async function renderGameLog(d, vsId) {
+  const id = d.player.player_id;
+  const gl = await api(`/api/players/${id}/games?season=${d.season}`);
+  document.title = `${d.player.full_name} · Game Log · HoopScholar`;
+  const games = gl.games, win = gl.window;
+  const shoot = (m, a) => (a == null ? "—" : `${m}-${a}`);
+  app.innerHTML = `
+    ${playerHead(d, "games", vsId)}
+    ${!gl.available ? `<div class="card"><p class="muted">Game logs aren't loaded yet. They arrive with the next data update.</p></div>`
+      : !games.length ? `<div class="card"><p class="muted">No games in ${d.season}.</p></div>` : `
+    <div class="grid two">
+      ${TREND_MEASURES.map((m, i) => `
+        <section class="card">
+          <h2>${tip(m.key, m.title)} · ${win}-game rolling average</h2>
+          <p class="note chart-sub">Line: average of the last ${win} games${m.key === "ts_pct" ? " (from their combined points and attempts)" : ""} · dots: each game${games.length < win ? ` · the line starts after ${win} games` : ""}</p>
+          <div class="chart-wrap" id="trend-${i}">${trendChart(games, m, win)}<div class="chart-tip" role="status" hidden></div></div>
+        </section>`).join("")}
+    </div>
+    <section class="card" style="margin-top:20px">
+      <h2>${d.season} Game Log · ${games.length} games</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th class="l">Date</th><th class="l">Opp</th><th class="l">Result</th>${[["min", "MIN"], ["pts", "PTS"], ["reb", "REB"], ["ast", "AST"], ["stl", "STL"], ["blk", "BLK"], ["tov", "TOV"]].map(([k, l]) => th(k, l)).join("")}<th>FG</th><th>3P</th><th>FT</th>${th("ts_pct", "TS%")}<th>+/-</th></tr></thead>
+        <tbody>${[...games].reverse().map((g) => `<tr>
+          <td class="l">${shortDate(g.game_date)}</td>
+          <td class="l">${g.home ? "vs" : "@"} ${teamLink(g.opp, d.season)}</td>
+          <td class="l">${g.margin == null ? "" : `${g.margin > 0 ? "W" : "L"} ${g.margin > 0 ? "+" : "−"}${Math.abs(g.margin)}`}</td>
+          <td>${g.min == null ? "—" : Math.round(g.min)}</td>
+          ${["pts", "reb", "ast", "stl", "blk", "tov"].map((k) => `<td>${g[k] ?? "—"}</td>`).join("")}
+          <td>${shoot(g.fgm, g.fga)}</td><td>${shoot(g.fg3m, g.fg3a)}</td><td>${shoot(g.ftm, g.fta)}</td>
+          <td>${fmt(g.ts_pct, "pct")}</td>
+          <td>${g.plus_minus == null ? "—" : (g.plus_minus > 0 ? "+" : "") + g.plus_minus}</td></tr>`).join("")}
+        </tbody>
+      </table></div>
+    </section>`}`;
+  if (gl.available && games.length) TREND_MEASURES.forEach((m, i) => wireTrend($(`#trend-${i}`), games, m, win));
+}
+
+// ------------------------------------------------------------------ career tab
+
+async function renderCareer(d, vsId) {
+  const id = d.player.player_id;
+  const c = await api(`/api/players/${id}/career`);
+  document.title = `${d.player.full_name} · Career · HoopScholar`;
+  const groups = {};
+  c.metrics.forEach((m) => (groups[m.group] ??= []).push(m));
+  const anyLow = c.metrics.some((m) => m.cells.some((x) => x.low_sample));
+  app.innerHTML = `
+    ${playerHead(d, "career", vsId)}
+    <section class="card">
+      <h2>Percentiles by Season</h2>
+      <p class="note" style="margin:-6px 0 12px">Each season is ranked against that season's qualified players.</p>
+      <div class="table-wrap"><table class="career">
+        <thead><tr><th class="l">Stat</th>${c.seasons.map((s) => `<th><a href="#/player/${id}?season=${s}">${s}</a>${c.qualified[s] ? "" : ` <span class="badge" title="Not qualified that season">not qualified</span>`}</th>`).join("")}</tr></thead>
+        <tbody>${Object.entries(groups).map(([g, ms]) => `
+          <tr class="grp"><td class="l" colspan="${c.seasons.length + 1}">${esc(g)}</td></tr>
+          ${ms.map((m) => `<tr><td class="l">${tip(m.key, m.label)}</td>${m.cells.map((x) => `<td>${x.percentile == null
+            ? `<span class="muted">—</span>`
+            : `<span class="cv">${fmt(x.value, m.fmt)}${x.low_sample ? "*" : ""}</span><span class="chip${x.low_sample ? " low" : ""}" style="background:${pctColor(x.percentile)}">${x.percentile}</span>`}</td>`).join("")}</tr>`).join("")}`).join("")}
+        </tbody>
+      </table></div>
+      ${anyLow ? `<p class="note">* Under ${META.zone_min_fga} attempts in that zone (low sample).</p>` : ""}
+    </section>`;
 }
 
 // ------------------------------------------------------------------ SVG court

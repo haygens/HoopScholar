@@ -59,6 +59,18 @@ def team_game_log(season: str, date_from: str | None = None) -> pd.DataFrame:
     )
 
 
+def player_game_log(season: str, date_from: str | None = None) -> pd.DataFrame:
+    """Every player's box score in every game, one row per player-game, in one
+    request (playergamelog would need one request per player)."""
+    return _call(
+        leaguegamelog.LeagueGameLog,
+        season=season,
+        season_type_all_star=config.SEASON_TYPE,
+        player_or_team_abbreviation="P",
+        date_from_nullable=_nba_date(date_from) if date_from else "",
+    )
+
+
 def shots_for_team(season: str, team_id: int, date_from: str | None = None) -> pd.DataFrame:
     """All field-goal attempts by one team's players. player_id=0 means every player."""
     return _call(

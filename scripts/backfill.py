@@ -2,7 +2,7 @@
 
     python scripts/backfill.py --season 2025-26
 
-About 36 requests (players, games, 30 teams of shots, 3 stat tables), so expect
+About 39 requests (players, games, player game logs, 30 teams of shots, 4 stat tables), so expect
 1-3 minutes. Safe to re-run: every write is an upsert.
 """
 import argparse
@@ -31,6 +31,7 @@ def main():
     print(f"Backfilling {args.season} into {args.db or config.DB_PATH}")
     pipeline.ingest_reference(conn, args.season)
     pipeline.ingest_games(conn, args.season)
+    pipeline.ingest_player_games(conn, args.season)
     shots = 0 if args.skip_shots else pipeline.ingest_shots(conn, args.season)
     pipeline.ingest_season_stats(conn, args.season)
     pipeline.finish(conn, args.season, "backfill", f"shots={shots}")

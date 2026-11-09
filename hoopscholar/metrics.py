@@ -250,6 +250,31 @@ def top_percentiles(row: pd.Series, prow: pd.Series, n: int = 3) -> list[dict]:
     return sorted(found, key=lambda x: -x["percentile"])[:n]
 
 
+# ---------------------------------------------------------------- game-log trends
+
+TREND_WINDOW = 5
+
+
+def rolling_trends(games: pd.DataFrame, window: int = TREND_WINDOW) -> pd.DataFrame:
+    """Add ts_pct (single game) and roll_pts / roll_ts (last `window` games,
+    starting once there are that many) to a date-ordered game log.
+
+    Rolling TS% comes from the window's totals, PTS / (2 × (FGA + 0.44 × FTA)),
+    so a 2-shot game doesn't count as much as a 20-shot game."""
+    g = games.copy()
+    if g.empty:
+        for c in ("ts_pct", "roll_pts", "roll_ts"):
+            g[c] = pd.Series(dtype=float)
+        return g
+    tsa = 2 * (g["fga"] + 0.44 * g["fta"])
+    g["ts_pct"] = g["pts"] / tsa.where(tsa > 0)
+    roll = lambda s: s.rolling(window, min_periods=window).sum()
+    g["roll_pts"] = roll(g["pts"]) / window
+    roll_tsa = roll(tsa)
+    g["roll_ts"] = roll(g["pts"]) / roll_tsa.where(roll_tsa > 0)
+    return g
+
+
 # ---------------------------------------------------------------- similar players
 
 SIMILAR_N = 5

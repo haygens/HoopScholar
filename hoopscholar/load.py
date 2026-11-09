@@ -130,6 +130,24 @@ def load_shots(conn, df: pd.DataFrame, season: str) -> int:
     return db.upsert(conn, "shots", rows, ["game_id", "game_event_id"])
 
 
+GAME_LOG_COLS = {
+    "TEAM_ID": "team_id", "MIN": "min", "PTS": "pts", "REB": "reb", "AST": "ast",
+    "STL": "stl", "BLK": "blk", "TOV": "tov", "FGM": "fgm", "FGA": "fga",
+    "FG3M": "fg3m", "FG3A": "fg3a", "FTM": "ftm", "FTA": "fta", "PLUS_MINUS": "plus_minus",
+}
+
+
+def load_player_games(conn, df: pd.DataFrame, season: str) -> int:
+    """LeagueGameLog (player mode) -> player_game_logs, one row per player-game."""
+    if df is None or df.empty:
+        return 0
+    ensure_players(conn, df)
+    rows = [{"player_id": int(r["PLAYER_ID"]), "game_id": str(r["GAME_ID"]), "season": season,
+             **{dst: _clean(r.get(src)) for src, dst in GAME_LOG_COLS.items()}}
+            for r in df.to_dict("records")]
+    return db.upsert(conn, "player_game_logs", rows, ["player_id", "game_id"])
+
+
 # nba_api column -> our column, per source frame
 BASE_COLS = {
     "TEAM_ABBREVIATION": "team_abbr", "AGE": "age", "GP": "gp", "MIN": "min",

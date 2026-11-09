@@ -113,6 +113,21 @@ CREATE TABLE IF NOT EXISTS player_shot_profile (
     PRIMARY KEY (player_id, season)
 );
 
+-- One box score per player per game, from LeagueGameLog (player mode), for the
+-- game-log tab and rolling trends. Date, opponent and home/away come from
+-- joining games, so they aren't repeated here. WITHOUT ROWID keeps the table in
+-- its primary-key b-tree (no separate index), which saves space.
+CREATE TABLE IF NOT EXISTS player_game_logs (
+    player_id   INTEGER NOT NULL,
+    game_id     TEXT NOT NULL,
+    season      TEXT NOT NULL,
+    team_id     INTEGER,
+    min REAL, pts INTEGER, reb INTEGER, ast INTEGER, stl INTEGER, blk INTEGER, tov INTEGER,
+    fgm INTEGER, fga INTEGER, fg3m INTEGER, fg3a INTEGER, ftm INTEGER, fta INTEGER,
+    plus_minus INTEGER,
+    PRIMARY KEY (player_id, game_id)
+) WITHOUT ROWID;
+
 -- Top 5 most similar qualified players per qualified player-season, by cosine
 -- similarity of centered slider percentiles. Built by metrics.refresh_similar().
 CREATE TABLE IF NOT EXISTS player_similar (

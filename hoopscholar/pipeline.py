@@ -24,6 +24,19 @@ def ingest_games(conn, season: str, date_from: str | None = None) -> int:
     return n
 
 
+def ingest_player_games(conn, season: str) -> int:
+    """Player game logs, one request. Picks its own start date (the day before the
+    last logged game, or the season start if none are stored yet), so the first
+    weekly run after this was added fills the whole season by itself."""
+    row = conn.execute("""SELECT MAX(g.game_date) FROM player_game_logs l JOIN games g USING (game_id)
+                          WHERE l.season = ?""", (season,)).fetchone()
+    since = day_before(row[0]) if row[0] else None
+    n = load.load_player_games(conn, fetch.player_game_log(season, since), season)
+    conn.commit()
+    print(f"player game logs: {n} (since {since or 'season start'})")
+    return n
+
+
 def ingest_shots(conn, season: str, date_from: str | None = None) -> int:
     """30 calls, one per team. Each commits on its own so a crash loses little."""
     total = 0

@@ -228,6 +228,27 @@ def build(seed: int = 7):
             pd.DataFrame(base), pd.DataFrame(adv), pd.DataFrame(track))
 
 
+def player_game_log(shots: pd.DataFrame) -> pd.DataFrame:
+    """A LeagueGameLog (player mode)-shaped frame derived from the demo shots, so
+    the game-log tab and the pipeline test have something consistent to load.
+    Free throws and the non-shooting columns are simple, deterministic fill-ins."""
+    if shots.empty:
+        return pd.DataFrame()
+    s = shots.assign(is3=(shots["SHOT_TYPE"] == "3PT Field Goal").astype(int))
+    s = s.assign(m3=s["is3"] * s["SHOT_MADE_FLAG"])
+    g = s.groupby(["PLAYER_ID", "PLAYER_NAME", "TEAM_ID", "GAME_ID", "GAME_DATE"], as_index=False).agg(
+        FGA=("SHOT_MADE_FLAG", "size"), FGM=("SHOT_MADE_FLAG", "sum"), FG3A=("is3", "sum"), FG3M=("m3", "sum"))
+    g["FTA"] = (g["FGA"] * 0.25).round().astype(int)
+    g["FTM"] = (g["FTA"] * 0.78).round().astype(int)
+    g["PTS"] = 2 * g["FGM"] + g["FG3M"] + g["FTM"]
+    g["MIN"] = (g["FGA"] * 2.2).clip(upper=42).round()
+    for c, k in (("REB", 0.35), ("AST", 0.25), ("STL", 0.05), ("BLK", 0.04), ("TOV", 0.12)):
+        g[c] = (g["FGA"] * k).round().astype(int)
+    g["PLUS_MINUS"] = 0
+    g["GAME_DATE"] = g["GAME_DATE"].str.slice(0, 4) + "-" + g["GAME_DATE"].str.slice(4, 6) + "-" + g["GAME_DATE"].str.slice(6, 8)
+    return g
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", default=str(config.ROOT / "data" / "demo.db"))
@@ -243,6 +264,7 @@ def main():
     load.load_players(conn, index)
     load.load_games(conn, log, SEASON)
     load.load_shots(conn, shots, SEASON)
+    load.load_player_games(conn, player_game_log(shots), SEASON)
     load.load_season_stats(conn, SEASON, base, adv, track)
     conn.commit()
     pipeline.finish(conn, SEASON, "demo", f"shots={len(shots)}")

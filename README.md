@@ -38,7 +38,7 @@ Open http://127.0.0.1:8000. Every player in the demo is invented, and the site s
 ## 2. Load the real season
 
 ```bash
-python scripts/backfill.py --season 2025-26           # ~36 requests, 1-3 minutes
+python scripts/backfill.py --season 2025-26           # ~39 requests, 1-3 minutes
 uvicorn api.main:app --reload                          # uses data/hoopscholar.db
 ```
 
@@ -112,6 +112,9 @@ lists only the libraries the website needs; `requirements.txt` stays the full lo
   by cosine similarity after centering at 50 (so the league median is 0). A missing stat, or a zone stat under
   25 attempts, counts as median. The top 5 are stored in `player_similar` and rebuilt for every season at the end
   of each update. Volume stats are part of the profile, so stars tend to match stars.
+- **Game logs** come from one `LeagueGameLog` request per season (player mode), not one request per player.
+  The weekly update picks up from the last logged game by itself. Rolling 5-game TS% uses the five games'
+  combined points and attempts, so a 2-shot game doesn't count as much as a 20-shot game.
 - **Hot zones** bin shots into 2 ft hexagons and color each by the player's FG% minus the
   league's FG% *from that same hexagon*. Small samples are pulled toward league average
   (8 phantom league-average attempts) so a 2-for-3 hex doesn't light up.
@@ -126,6 +129,8 @@ lists only the libraries the website needs; `requirements.txt` stays the full lo
 | `GET /api/leaderboard?stat=ts_pct&season=2025-26&qualified=true&limit=50` | sorted leaderboard |
 | `GET /api/players/{id}?season=` | bio, season stats, percentile sliders, zone splits, career |
 | `GET /api/players/{id}/shots?season=` | every shot + hex bins vs league |
+| `GET /api/players/{id}/games?season=` | game log with rolling 5-game PTS and TS% |
+| `GET /api/players/{id}/career` | every slider's percentile in every season |
 
 Interactive docs at http://127.0.0.1:8000/docs.
 
@@ -139,7 +144,6 @@ python -m pytest tests/
 
 - More tracking data: `fetch.player_tracking` already accepts other `pt_measure_type`s
   (`Drives`, `CatchShoot`, `PullUpShot`, `Defense`, `Rebounding`). Add columns and sliders for them.
-- Year-over-year percentile history on the player page.
 - Export the API responses to static JSON and host the whole site free on GitHub Pages/Vercel.
 - Swap the vanilla JS front end for React/Next.js once the pages settle.
 
