@@ -15,6 +15,13 @@ Start-Transcript -Path $log -Append | Out-Null
 try {
     Write-Output "=== $(Get-Date) ==="
 
+    # Only publish from main. On any other branch the data commit would land on
+    # that branch (and the push would fail), so skip the whole run instead.
+    $branch = (git rev-parse --abbrev-ref HEAD).Trim()
+    if ($branch -ne "main") {
+        throw "Checked out on '$branch', not 'main'. Skipping the update; switch back with: git checkout main"
+    }
+
     & $py scripts\nightly.py
     if ($LASTEXITCODE -ne 0) { throw "nightly.py failed (exit $LASTEXITCODE)" }
 
