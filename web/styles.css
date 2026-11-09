@@ -111,3 +111,5 @@ td a:hover { text-decoration: underline; }
 .tooltip { position: fixed; z-index: 50; max-width: 280px; padding: 7px 10px; border-radius: 6px; background: #1f2430; color: #fff;
   font-size: 12px; line-height: 1.4; font-weight: 400; text-transform: none; letter-spacing: 0; white-space: normal;
   box-shadow: 0 4px 14px rgba(0,0,0,.18); pointer-events: none; }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag.early { background: #fdf0d5; color: #8a5a00; }

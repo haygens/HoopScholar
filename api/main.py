@@ -206,6 +206,8 @@ def player(player_id: int, season: str | None = None):
         "zones": zone_rows,
         "career": career,
         "pool_size": int(frame["qualified"].sum()),
+        "league_max_gp": int(frame["gp"].max()),
+        "early_season": bool(frame["gp"].max() < config.EARLY_SEASON_GP),
     }
 
 

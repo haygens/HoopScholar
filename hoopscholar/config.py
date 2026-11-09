@@ -24,6 +24,9 @@ ZONE_MIN_FGA = int(os.environ.get("HOOP_ZONE_MIN_FGA", "25"))
 # reference pool uses ZONE_MIN_FGA scaled by season progress, never below this.
 ZONE_POOL_FLOOR = int(os.environ.get("HOOP_ZONE_POOL_FLOOR", "5"))
 SEASON_GAMES = 82
+# Below this league-leading games-played total, the player page warns that
+# percentiles are early-season numbers.
+EARLY_SEASON_GP = int(os.environ.get("HOOP_EARLY_SEASON_GP", "15"))
 
 
 def season_for_date(d: _dt.date) -> str:
