@@ -108,6 +108,10 @@ lists only the libraries the website needs; `requirements.txt` stays the full lo
   tiny samples don't distort everyone else's rank but the pool isn't empty in November. Zone leaderboards use the same minimum.
 - **League zone FG%** is total made / total attempted over every league shot in that zone. Backcourt has no
   league average: NBA.com's official FGA leaves out most missed end-of-period heaves, so the few left are mostly makes.
+- **Similar players** compare each qualified player's slider percentiles with every other qualified player's,
+  by cosine similarity after centering at 50 (so the league median is 0). A missing stat, or a zone stat under
+  25 attempts, counts as median. The top 5 are stored in `player_similar` and rebuilt for every season at the end
+  of each update. Volume stats are part of the profile, so stars tend to match stars.
 - **Hot zones** bin shots into 2 ft hexagons and color each by the player's FG% minus the
   league's FG% *from that same hexagon*. Small samples are pulled toward league average
   (8 phantom league-average attempts) so a 2-for-3 hex doesn't light up.

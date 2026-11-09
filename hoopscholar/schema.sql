@@ -113,6 +113,17 @@ CREATE TABLE IF NOT EXISTS player_shot_profile (
     PRIMARY KEY (player_id, season)
 );
 
+-- Top 5 most similar qualified players per qualified player-season, by cosine
+-- similarity of centered slider percentiles. Built by metrics.refresh_similar().
+CREATE TABLE IF NOT EXISTS player_similar (
+    player_id   INTEGER NOT NULL,
+    season      TEXT NOT NULL,
+    rank        INTEGER NOT NULL,     -- 1 = most similar
+    similar_id  INTEGER NOT NULL,
+    score       REAL,                 -- cosine similarity, -1..1
+    PRIMARY KEY (player_id, season, rank)
+);
+
 CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT

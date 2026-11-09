@@ -5,6 +5,7 @@
 
 Then open http://127.0.0.1:8000
 """
+import sqlite3
 import sys
 import threading
 from pathlib import Path
@@ -232,6 +233,16 @@ def player(player_id: int, season: str | None = None):
         SELECT season, team_abbr, gp, min, pts, reb, ast, stl, blk, tov, fg_pct, fg3_pct, ft_pct, ts_pct
         FROM player_season_stats WHERE player_id=? ORDER BY season""", (player_id,))]
 
+    try:
+        similar = [dict(r) for r in c.execute("""
+            SELECT ps.similar_id AS player_id, ps.score, p.full_name, s.team_abbr, p.position
+            FROM player_similar ps
+            JOIN players p ON p.player_id = ps.similar_id
+            LEFT JOIN player_season_stats s ON s.player_id = ps.similar_id AND s.season = ps.season
+            WHERE ps.player_id = ? AND ps.season = ? ORDER BY ps.rank""", (player_id, season))]
+    except sqlite3.OperationalError:  # older database without the table
+        similar = []
+
     return {
         "player": dict(bio),
         "season": season,
@@ -241,6 +252,7 @@ def player(player_id: int, season: str | None = None):
         "sliders": sliders,
         "zones": zone_rows,
         "career": career,
+        "similar": similar,
         "pool_size": int(frame["qualified"].sum()),
         "league_max_gp": int(frame["gp"].max()),
         "early_season": bool(frame["gp"].max() < config.EARLY_SEASON_GP),

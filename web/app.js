@@ -212,6 +212,15 @@ async function renderPlayer(id, season) {
           ${["fg_pct", "fg3_pct", "ft_pct", "ts_pct"].map((k) => `<td>${fmt(c[k], "pct")}</td>`).join("")}</tr>`).join("")}
         </tbody>
       </table></div>
+    </section>
+
+    <section class="card" style="margin-top:20px">
+      <h2>${tip("similar", `Similar Players · ${d.season}`)}</h2>
+      ${d.similar.length ? `<ol class="similar">${d.similar.map((x) => `
+        <li><a href="#/player/${x.player_id}?season=${d.season}">${esc(x.full_name)}</a>
+          <span class="meta">${esc([x.team_abbr, x.position].filter(Boolean).join(" · "))}</span>
+          <span class="score" title="Cosine similarity of percentile profiles (1 = identical)">${Math.round(x.score * 100)}</span></li>`).join("")}</ol>`
+      : `<p class="muted">${d.qualified ? "Not computed yet: runs with the next data update." : "Only computed for qualified players."}</p>`}
     </section>`;
 
   $("#season").addEventListener("change", (e) => (location.hash = `#/player/${id}?season=${e.target.value}`));

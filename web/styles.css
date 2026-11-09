@@ -120,3 +120,11 @@ td a:hover { text-decoration: underline; }
 .trait { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; }
 .trait .chip { min-width: 26px; padding: 1px 5px; font-size: 11px; }
 tr.nq td { color: var(--muted); }
+
+/* ---------- similar players */
+.similar { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px 16px; }
+.similar li { display: flex; align-items: baseline; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+.similar a { font-weight: 600; text-decoration: none; }
+.similar a:hover { text-decoration: underline; }
+.similar .meta { color: var(--muted); font-size: 12px; }
+.similar .score { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 700; color: var(--muted); }

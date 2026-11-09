@@ -87,6 +87,11 @@ def test_backfill_then_nightly():
     assert len(small) and small["rim_fg_pct"].notna().all()
     assert metrics.low_sample_mask(frame, rim)[small.index].all()
     assert not pct.loc[small["player_id"], "rim_fg_pct"].isna().any()
+    # Similar players: 5 per qualified player, never themselves, all qualified
+    sim = conn.execute("SELECT player_id, similar_id, score FROM player_similar WHERE season=?", (SEASON,)).fetchall()
+    assert len(sim) == 5 * len(q)
+    assert all(a != b and -1 <= sc <= 1 for a, b, sc in sim)
+    assert {b for _, b, _ in sim} <= set(q.index)
     games = conn.execute("SELECT COUNT(*) FROM games WHERE home_team_id IS NULL OR away_team_id IS NULL").fetchone()[0]
     assert games == 0
     print(f"ok: backfill {n1} shots, nightly -> {n2}, {len(q)} qualified players")

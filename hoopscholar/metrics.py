@@ -91,6 +91,7 @@ GLOSSARY: dict[str, str] = {
     "zone_league": "League FG% from this zone: every made shot there divided by every attempt, across the whole league.",
     "zone_diff": "The player's FG% from this zone minus the league's, in percentage points.",
     "percentile": "Percentile vs qualified players: 100 is the best, 50 is average, 0 is the worst.",
+    "similar": "Qualified players whose percentile profile points the same way, by cosine similarity of their slider percentiles (100 = identical shape).",
 }
 
 
@@ -247,6 +248,54 @@ def top_percentiles(row: pd.Series, prow: pd.Series, n: int = 3) -> list[dict]:
         found.append({"key": m.key, "label": m.label, "fmt": m.fmt,
                       "value": float(row[m.key]), "percentile": int(p)})
     return sorted(found, key=lambda x: -x["percentile"])[:n]
+
+
+# ---------------------------------------------------------------- similar players
+
+SIMILAR_N = 5
+
+
+def similar_players(frame: pd.DataFrame, pcts: pd.DataFrame, season: str, n: int = SIMILAR_N) -> list[dict]:
+    """Top-n most similar qualified players for each qualified player, by cosine
+    similarity of their slider percentiles.
+
+    Percentiles are centered, (p - 50) / 50, so the league median is 0. On raw
+    0-100 values every pair looks similar, because all vectors point the same
+    general way. A missing stat, or a zone stat under ZONE_MIN_FGA attempts,
+    counts as 0 (median), so it neither adds to nor subtracts from a match."""
+    q = frame[frame["qualified"]]
+    keys = [m.key for m in METRICS if m.key in pcts]
+    if len(q) < 2 or not keys:
+        return []
+    X = (pcts.set_index("player_id").loc[q["player_id"], keys].to_numpy(float) - 50) / 50
+    for j, key in enumerate(keys):
+        m = METRIC_BY_KEY[key]
+        if m.sample_col:
+            X[~sample_ok(q, m, config.ZONE_MIN_FGA).to_numpy(), j] = np.nan
+    X = np.nan_to_num(X, nan=0.0)
+    norms = np.linalg.norm(X, axis=1)
+    U = X / np.where(norms == 0, 1, norms)[:, None]
+    S = U @ U.T
+    np.fill_diagonal(S, -np.inf)
+    ids = q["player_id"].to_numpy()
+    out = []
+    for i, pid in enumerate(ids):
+        for rank, j in enumerate(np.argsort(-S[i], kind="stable")[:n], 1):
+            out.append({"player_id": int(pid), "season": season, "rank": rank,
+                        "similar_id": int(ids[j]), "score": round(float(S[i, j]), 4)})
+    return out
+
+
+def refresh_similar(conn, season: str) -> int:
+    """Rebuild player_similar for a season (local data only, no network)."""
+    frame = season_frame(conn, season)
+    rows = similar_players(frame, percentiles(frame), season) if not frame.empty else []
+    conn.execute("DELETE FROM player_similar WHERE season = ?", (season,))
+    conn.executemany(
+        "INSERT INTO player_similar (player_id, season, rank, similar_id, score) VALUES (?,?,?,?,?)",
+        [(r["player_id"], r["season"], r["rank"], r["similar_id"], r["score"]) for r in rows])
+    conn.commit()
+    return len(rows)
 
 
 # ---------------------------------------------------------------- hex bins

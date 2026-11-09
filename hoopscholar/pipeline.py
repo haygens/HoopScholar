@@ -58,6 +58,11 @@ def finish(conn, season: str, kind: str, detail: str) -> None:
     for s in sorted(set(stored) | {season}):
         n = metrics.refresh_shot_profiles(conn, s)
         print(f"shot profiles {s}: {n}")
+    # Similar players use the shot profiles above, so they come second.
+    with_stats = [r[0] for r in conn.execute("SELECT DISTINCT season FROM player_season_stats")]
+    for s in sorted(set(with_stats) | {season}):
+        n = metrics.refresh_similar(conn, s)
+        print(f"similar players {s}: {n}")
     db.set_meta(conn, "last_updated", db.now_iso())
     db.set_meta(conn, "data_source", "nba.com")
     db.log_run(conn, kind, season, detail)
