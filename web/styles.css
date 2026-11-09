@@ -8,6 +8,7 @@
   --accent: #e8572a;
   --blue: #3661ad;
   --red: #d8221f;
+  --topbar-h: 56px;
   /* Condensed display face for the logo, player names and section headings only;
      body text keeps the system font. */
   --display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif-condensed, ui-sans-serif, sans-serif;
@@ -254,4 +255,19 @@ td, th, .val, .vs-val, .chip, .track .dot, .score, .cv, .filters select, .chart-
   .band .headline { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
   .band .headline dd { font-size: 30px; }
   .band-season { justify-self: start; }
+}
+
+/* ---------- leaderboard */
+.topbar { min-height: var(--topbar-h); }
+table.lb th, table.lb td { padding-top: 5px; padding-bottom: 5px; }
+table.lb tbody tr:hover { background: #eaf0f7; }
+table.lb tbody tr:hover td.sorted { background: #dfe7f1; }
+table.lb .team-link { font-weight: 600; }
+/* Sticky header under the sticky top bar, on wide screens only. There the
+   table fits, so its wrapper doesn't scroll sideways; a scrolling wrapper
+   would become the header's scroll box and misplace it (narrow screens). */
+@media (min-width: 901px) {
+  .lb-wrap { overflow: visible; }
+  table.lb thead th { position: sticky; top: var(--topbar-h); z-index: 2; background: #fff; box-shadow: inset 0 -1px 0 var(--line); }
+  table.lb thead th.sorted { background: #f4f6f9; }
 }

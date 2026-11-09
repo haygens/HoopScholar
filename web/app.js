@@ -86,16 +86,17 @@ async function renderLeaderboard(params) {
   const statOptions = Object.entries(groups).map(([g, ms]) =>
     `<optgroup label="${esc(g)}">${ms.map((s) => `<option value="${s.key}" ${s.key === stat ? "selected" : ""}>${esc(s.label)}</option>`).join("")}</optgroup>`).join("");
 
+  document.title = `${m.label} leaders · ${season} · HoopScholar`;
   app.innerHTML = `
-    <h1 class="page-title">Leaderboard: ${esc(m.label)}</h1>
+    <h1 class="page-title">${esc(m.label)} leaders · ${esc(season)}</h1>
     <div class="controls">
       <label>Stat <select id="lb-stat">${statOptions}</select></label>
       <label>Season <select id="lb-season">${META.seasons.map((s) => `<option ${s === season ? "selected" : ""}>${s}</option>`).join("")}</select></label>
       <label><input type="checkbox" id="lb-q" ${qualified ? "checked" : ""}> Qualified only</label>
       <span class="muted">Qualified = ${Math.round(META.qualification.gp_share * 100)}% of max games played and ${META.qualification.min_mpg}+ MPG${data.minimum ? ` · ranked only with ${data.minimum.value}+ ${esc(data.minimum.unit)} (scales with the season)` : ""}</span>
     </div>
-    <div class="table-wrap">
-      <table>
+    <div class="table-wrap lb-wrap">
+      <table class="lb">
         <thead><tr><th>#</th><th class="l">Player</th><th class="l">Team</th>${cols.map(([k, l]) => k === stat
           ? `<th class="sorted" aria-sort="${(m.higher_better ? "descending" : "ascending")}">${tip(k, l)}</th>`
           : th(k, l)).join("")}${th("percentile", "Pctl")}</tr></thead>
@@ -103,7 +104,7 @@ async function renderLeaderboard(params) {
           <tr>
             <td>${r.rank}</td>
             <td class="l"><a href="#/player/${r.player_id}?season=${season}">${esc(r.full_name)}</a></td>
-            <td class="l">${teamLink(r.team_abbr, season)}</td>
+            <td class="l">${teamLink(r.team_abbr, season, true)}</td>
             ${cols.map(([k, , f]) => `<td${k === stat ? ` class="sorted"` : ""}>${fmt(r[k], f)}</td>`).join("")}
             <td>${r.percentile == null ? "" : `<span class="chip" style="background:${pctColor(r.percentile)}">${r.percentile}</span>`}</td>
           </tr>`).join("")}
