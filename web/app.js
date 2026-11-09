@@ -94,7 +94,7 @@ async function renderLeaderboard(params) {
       <label><input type="checkbox" id="lb-q" ${qualified ? "checked" : ""}> Qualified only</label>
       <span class="muted">Qualified = ${Math.round(META.qualification.gp_share * 100)}% of max games played and ${META.qualification.min_mpg}+ MPG${data.minimum ? ` · ranked only with ${data.minimum.value}+ ${esc(data.minimum.unit)} (scales with the season)` : ""}</span>
     </div>
-    <div class="card table-wrap">
+    <div class="table-wrap">
       <table>
         <thead><tr><th>#</th><th class="l">Player</th><th class="l">Team</th>${cols.map(([k, l]) => k === stat
           ? `<th class="sorted" aria-sort="${(m.higher_better ? "descending" : "ascending")}">${tip(k, l)}</th>`
@@ -138,7 +138,7 @@ async function renderTeam(abbr, season) {
       </div>
       <select id="season">${d.seasons.map((x) => `<option ${x === d.season ? "selected" : ""}>${x}</option>`).join("")}</select>
     </section>
-    <div class="card table-wrap">
+    <div class="table-wrap">
       <table>
         <thead><tr><th class="l">Player</th><th class="l">Pos</th>${th("gp", "GP")}${th("min", "MIN")}${th("pts", "PTS")}${th("reb", "REB")}${th("ast", "AST")}${th("ts_pct", "TS%")}<th class="l">${tip("percentile", "Top percentiles")}</th></tr></thead>
         <tbody>${d.roster.map((r) => `
@@ -275,7 +275,7 @@ async function renderPlayer(id, season, vs, tab) {
       </section>
     </div>
 
-    <section class="card" style="margin-top:20px">
+    <section class="section">
       <h2>Season Stats (Per Game)</h2>
       <div class="table-wrap"><table>
         <thead><tr><th>Season</th><th class="l">Team</th>${[["gp", "GP"], ["min", "MIN"], ["pts", "PTS"], ["reb", "REB"], ["ast", "AST"], ["stl", "STL"], ["blk", "BLK"], ["tov", "TOV"], ["fg_pct", "FG%"], ["fg3_pct", "3P%"], ["ft_pct", "FT%"], ["ts_pct", "TS%"]].map(([k, l]) => th(k, l)).join("")}</tr></thead>
@@ -286,7 +286,7 @@ async function renderPlayer(id, season, vs, tab) {
       </table></div>
     </section>
 
-    <section class="card" style="margin-top:20px">
+    <section class="section">
       <h2>${tip("similar", `Similar Players · ${d.season}`)}</h2>
       ${d.similar.length ? `<ol class="similar">${d.similar.map((x) => `
         <li><a href="#/player/${x.player_id}?season=${d.season}">${esc(x.full_name)}</a>
@@ -515,7 +515,7 @@ async function renderGameLog(d, vsId) {
           <div class="chart-wrap" id="trend-${i}">${trendChart(games, m, win)}<div class="chart-tip" role="status" hidden></div></div>
         </section>`).join("")}
     </div>
-    <section class="card" style="margin-top:20px">
+    <section class="section">
       <h2>${d.season} Game Log · ${games.length} games</h2>
       <div class="table-wrap"><table>
         <thead><tr><th class="l">Date</th><th class="l">Opp</th><th class="l">Result</th>${[["min", "MIN"], ["pts", "PTS"], ["reb", "REB"], ["ast", "AST"], ["stl", "STL"], ["blk", "BLK"], ["tov", "TOV"]].map(([k, l]) => th(k, l)).join("")}<th>FG</th><th>3P</th><th>FT</th>${th("ts_pct", "TS%")}<th>+/-</th></tr></thead>
@@ -545,7 +545,7 @@ async function renderCareer(d, vsId) {
   const anyLow = c.metrics.some((m) => m.cells.some((x) => x.low_sample));
   app.innerHTML = `
     ${playerHead(d, "career", vsId)}
-    <section class="card">
+    <section class="section first">
       <h2>Percentiles by Season</h2>
       <p class="note" style="margin:-6px 0 12px">Each season is ranked against that season's qualified players.</p>
       <div class="table-wrap"><table class="career">

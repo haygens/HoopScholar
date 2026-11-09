@@ -2,7 +2,7 @@
   --ink: #16202e;
   --muted: #6b7380;
   --line: #e3e6ea;
-  --bg: #f6f7f9;
+  --bg: #fff;          /* white page, Savant-style: sections are separated by space and rules, not boxes */
   --card: #fff;
   --navy: #0f2340;
   --accent: #e8572a;
@@ -46,7 +46,10 @@ a { color: inherit; }
 main { max-width: 1180px; margin: 0 auto; padding: 24px; }
 .foot { text-align: center; font-size: 12px; color: var(--muted); padding: 24px; }
 
-.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 20px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 20px; }
+/* Unboxed section: space above and a hairline rule instead of a card */
+.section { margin-top: 36px; padding-top: 20px; border-top: 1px solid var(--line); }
+.section.first { margin-top: 0; padding-top: 4px; border-top: 0; }
 .card h2, h2 { margin: 0 0 14px; font-family: var(--display); font-weight: 600; font-size: 19px; line-height: 1.15; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
 .grid { display: grid; gap: 20px; }
 @media (min-width: 900px) { .grid.two { grid-template-columns: 1fr 1fr; } }
@@ -93,7 +96,7 @@ table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-nu
 th, td { padding: 7px 8px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
 th { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; }
 th:first-child, td:first-child, th.l, td.l { text-align: left; }
-tbody tr:hover { background: #f8f9fb; }
+tbody tr:hover { background: #f5f7fa; }
 td a { text-decoration: none; font-weight: 600; }
 td a:hover { text-decoration: underline; }
 .chip { display: inline-block; min-width: 30px; padding: 2px 6px; border-radius: 99px; color: #fff; font-weight: 700; font-size: 12px; text-align: center; }
