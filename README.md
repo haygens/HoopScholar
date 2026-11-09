@@ -98,6 +98,7 @@ lists only the libraries the website needs; `requirements.txt` stays the full lo
   rank. The worst qualified player is 0 and the best is 100. Lower-is-better stats (turnovers, defensive rating)
   are flipped so red always means good. Players who don't qualify still get a percentile, but the page
   labels them "not qualified".
+- **League zone FG%** is total made / total attempted over every league shot in that zone. Backcourt has no league average: NBA.com's official FGA leaves out most missed end-of-period heaves, so the few that remain are mostly makes.
 - **Zone FG%** (rim, mid-range, corner 3) needs at least 25 attempts (`HOOP_ZONE_MIN_FGA`), otherwise it shows "—".
 - **Hot zones** bin shots into 2 ft hexagons and color each by the player's FG% minus the
   league's FG% *from that same hexagon*. Small samples are pulled toward league average

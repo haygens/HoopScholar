@@ -100,3 +100,5 @@ td a:hover { text-decoration: underline; }
 
 .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 14px; font-size: 14px; }
 .page-title { font-size: 28px; margin: 0 0 16px; letter-spacing: -0.02em; }
+
+.note { font-size: 12px; color: var(--muted); margin: 8px 0 0; }

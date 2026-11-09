@@ -153,6 +153,7 @@ async function renderPlayer(id, season) {
               <td style="color:${diffColor(diff)};font-weight:700">${diff == null ? "—" : (diff >= 0 ? "+" : "") + (diff * 100).toFixed(1)}</td></tr>`;
           }).join("")}</tbody>
         </table>
+        ${d.zones.some((z) => z.no_league_avg) ? `<p class="note">— Backcourt has no league average: NBA.com's official FGA leaves out most missed end-of-quarter heaves, so the few that remain are mostly makes.</p>` : ""}
       </section>
     </div>
 

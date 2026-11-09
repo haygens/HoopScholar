@@ -88,6 +88,27 @@ def refresh_shot_profiles(conn, season: str) -> int:
     return conn.execute("SELECT COUNT(*) FROM player_shot_profile WHERE season=?", (season,)).fetchone()[0]
 
 
+# ---------------------------------------------------------------- league zone averages
+
+# Zones where NBA.com's data can't support a league average. Official FGA leaves
+# out most missed end-of-period heaves, so the Backcourt shots that remain are a
+# few dozen a season and mostly makes (2026-27 at launch: 6 of 8).
+NO_LEAGUE_AVG_ZONES = {"Backcourt"}
+
+
+def league_zone_averages(conn, season: str) -> dict:
+    """{zone_basic: {fga, fgm, fg_pct}} over every league shot in the season.
+    fg_pct is total made / total attempted (not an average of player averages),
+    and None for zones in NO_LEAGUE_AVG_ZONES."""
+    rows = conn.execute("""SELECT zone_basic, COUNT(*) AS fga, SUM(made) AS fgm
+                           FROM shots WHERE season = ? GROUP BY zone_basic""", (season,)).fetchall()
+    out = {}
+    for zone, fga, fgm in rows:
+        pct = None if zone in NO_LEAGUE_AVG_ZONES or not fga else fgm / fga
+        out[zone] = {"fga": fga, "fgm": fgm, "fg_pct": pct}
+    return out
+
+
 # ---------------------------------------------------------------- season frame + percentiles
 
 def season_frame(conn, season: str) -> pd.DataFrame:

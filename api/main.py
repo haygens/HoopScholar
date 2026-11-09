@@ -68,11 +68,7 @@ def league_hexes(season: str) -> pd.DataFrame:
 
 
 def league_zones(season: str) -> dict:
-    def build():
-        rows = conn().execute("""SELECT zone_basic, COUNT(*) fga, AVG(made) fg_pct
-                                 FROM shots WHERE season=? GROUP BY zone_basic""", (season,)).fetchall()
-        return {r["zone_basic"]: {"fga": r["fga"], "fg_pct": r["fg_pct"]} for r in rows}
-    return cached("zones", season, build)
+    return cached("zones", season, lambda: metrics.league_zone_averages(conn(), season))
 
 
 # ------------------------------------------------------------------ helpers
@@ -182,7 +178,9 @@ def player(player_id: int, season: str | None = None):
     zones = c.execute("""SELECT zone_basic, COUNT(*) fga, SUM(made) fgm, AVG(made) fg_pct
                          FROM shots WHERE player_id=? AND season=? GROUP BY zone_basic
                          ORDER BY COUNT(*) DESC""", (player_id, season)).fetchall()
-    zone_rows = [{**dict(z), "league_fg_pct": zones_league.get(z["zone_basic"], {}).get("fg_pct")} for z in zones]
+    zone_rows = [{**dict(z),
+                  "league_fg_pct": zones_league.get(z["zone_basic"], {}).get("fg_pct"),
+                  "no_league_avg": z["zone_basic"] in metrics.NO_LEAGUE_AVG_ZONES} for z in zones]
 
     career = [dict(r) for r in c.execute("""
         SELECT season, team_abbr, gp, min, pts, reb, ast, stl, blk, tov, fg_pct, fg3_pct, ft_pct, ts_pct
