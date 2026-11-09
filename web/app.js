@@ -122,8 +122,10 @@ async function renderLeaderboard(params) {
 
 // ------------------------------------------------------------------ team page
 
-const teamLink = (abbr, season) => abbr
-  ? `<a class="team-link" href="#/team/${encodeURIComponent(abbr)}${season ? `?season=${season}` : ""}">${esc(abbr)}</a>` : "";
+// Link to a team page; dot=true adds a small team-color dot before the abbreviation.
+const teamDot = (abbr) => `<span class="team-dot" style="background:${teamColor(abbr)}" aria-hidden="true"></span>`;
+const teamLink = (abbr, season, dot = false) => abbr
+  ? `<a class="team-link" href="#/team/${encodeURIComponent(abbr)}${season ? `?season=${season}` : ""}">${dot ? teamDot(abbr) : ""}${esc(abbr)}</a>` : "";
 
 async function renderTeam(abbr, season) {
   const d = await api(`/api/teams/${encodeURIComponent(abbr)}${season ? `?season=${season}` : ""}`);
@@ -288,11 +290,20 @@ async function renderPlayer(id, season, vs, tab) {
 
     <section class="section">
       <h2>${tip("similar", `Similar Players · ${d.season}`)}</h2>
-      ${d.similar.length ? `<ol class="similar">${d.similar.map((x) => `
-        <li><a href="#/player/${x.player_id}?season=${d.season}">${esc(x.full_name)}</a>
-          <span class="meta">${esc([x.team_abbr, x.position].filter(Boolean).join(" · "))}</span>
-          <a class="cmp-link" href="${here(`&vs=${x.player_id}`)}" title="Overlay ${esc(x.full_name)} on the percentile bars">compare</a>
-          <span class="score" title="Cosine similarity of percentile profiles (100 = identical)">${Math.round(x.score * 100)}</span></li>`).join("")}</ol>`
+      ${d.similar.length ? `<ol class="sim-tiles">${d.similar.map((x) => {
+        const score = Math.max(0, Math.round(x.score * 100));
+        return `<li class="sim">
+          <div class="sim-who">
+            <a class="sim-name" href="#/player/${x.player_id}?season=${d.season}">${esc(x.full_name)}</a>
+            <span class="sim-team">${teamLink(x.team_abbr, d.season, true)}${x.position ? ` · ${esc(x.position)}` : ""}</span>
+          </div>
+          <div class="sim-score" title="Similarity of percentile profiles (100 = identical)">
+            <span class="sim-num">${score}</span>
+            <span class="sim-bar" aria-hidden="true"><span style="width:${score}%"></span></span>
+          </div>
+          <a class="btn" href="${here(`&vs=${x.player_id}`)}" aria-label="Compare with ${esc(x.full_name)}">Compare</a>
+        </li>`;
+      }).join("")}</ol>`
       : `<p class="muted">${d.qualified ? "Not computed yet: runs with the next data update." : "Only computed for qualified players."}</p>`}
     </section>`;
 

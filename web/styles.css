@@ -137,12 +137,34 @@ td.sorted { font-weight: 700; color: var(--ink); }
 tr.nq td { color: var(--muted); }
 
 /* ---------- similar players */
-.similar { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px 16px; }
-.similar li { display: flex; align-items: baseline; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
-.similar a { font-weight: 600; text-decoration: none; }
-.similar a:hover { text-decoration: underline; }
-.similar .meta { color: var(--muted); font-size: 12px; }
-.similar .score { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 700; color: var(--muted); }
+/* Five even tiles; one list on phones. Tiles are separated by hairlines,
+   not boxed, to match the unboxed sections. */
+.sim-tiles { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.sim { display: flex; flex-direction: column; gap: 10px; padding: 4px 16px 4px; border-left: 1px solid var(--line); min-width: 0; }
+.sim:first-child { border-left: 0; padding-left: 0; }
+.sim-name { display: block; font-weight: 700; font-size: 15px; text-decoration: none; color: var(--ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sim-name:hover, .sim-name:focus-visible { text-decoration: underline; }
+.sim-team { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
+.sim-team .team-link { color: var(--muted); font-weight: 600; }
+.sim-score { display: flex; align-items: center; gap: 8px; }
+.sim-num { font-family: var(--display); font-weight: 700; font-size: 26px; line-height: 1; min-width: 2ch; font-variant-numeric: tabular-nums; }
+.sim-bar { flex: 1; height: 6px; background: #eceef1; border-radius: 3px; overflow: hidden; }
+.sim-bar span { display: block; height: 100%; background: var(--navy); border-radius: 3px; }
+.btn { display: inline-flex; align-items: center; justify-content: center; align-self: flex-start; min-height: 32px; padding: 0 14px;
+  border: 1px solid var(--navy); border-radius: 6px; color: var(--navy); background: #fff; font-size: 13px; font-weight: 600; text-decoration: none; }
+.btn:hover { background: var(--navy); color: #fff; }
+.btn:focus-visible { outline: 2px solid #3661ad; outline-offset: 2px; }
+.team-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; }
+@media (max-width: 700px) {
+  .sim-tiles { grid-template-columns: 1fr; }
+  .sim { flex-direction: row; align-items: center; gap: 12px; padding: 10px 0; border-left: 0; border-top: 1px solid var(--line); }
+  .sim:first-child { border-top: 0; }
+  .sim-who { flex: 1; min-width: 0; }
+  .sim-score { width: 92px; }
+  .sim-num { font-size: 22px; }
+  .btn { align-self: center; min-height: 44px; }
+}
 
 /* ---------- compare mode */
 .card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin-bottom: 10px; }
@@ -160,7 +182,6 @@ tr.nq td { color: var(--muted); }
 .track .dot.vs { background: #1f2430; width: 24px; height: 24px; margin-left: -12px; margin-top: -12px; font-size: 11px; border: 2px solid #fff; z-index: 2; }
 .track .dot.vs.low { opacity: .6; }
 .vs-val { display: block; font-size: 11px; line-height: 1.2; font-weight: 600; color: #1f2430; }
-.similar .cmp-link { font-size: 11px; font-weight: 400; color: var(--muted); }
 
 /* ---------- player tabs */
 .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: -6px 0 18px; }
