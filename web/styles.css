@@ -128,3 +128,21 @@ tr.nq td { color: var(--muted); }
 .similar a:hover { text-decoration: underline; }
 .similar .meta { color: var(--muted); font-size: 12px; }
 .similar .score { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 700; color: var(--muted); }
+
+/* ---------- compare mode */
+.card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin-bottom: 14px; }
+.card .card-head h2 { margin: 0; }
+.picker { position: relative; width: min(230px, 100%); }
+.picker input { width: 100%; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }
+.picker .search-results { top: 34px; z-index: 20; }
+.compare-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; font-size: 13px; margin: -4px 0 10px; }
+.compare-legend .key { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+.compare-legend .key.a { background: linear-gradient(90deg, rgb(54,97,173), rgb(200,200,200), rgb(216,34,31)); }
+.compare-legend .key.b { background: #1f2430; }
+.compare-legend a { font-weight: 600; }
+.compare-legend .clear { margin-left: auto; font-weight: 400; font-size: 12px; color: var(--muted); }
+.track .dot { z-index: 3; }
+.track .dot.vs { background: #1f2430; width: 24px; height: 24px; margin-left: -12px; margin-top: -12px; font-size: 11px; border: 2px solid #fff; z-index: 2; }
+.track .dot.vs.low { opacity: .6; }
+.vs-val { display: block; font-size: 11px; line-height: 1.2; font-weight: 600; color: #1f2430; }
+.similar .cmp-link { font-size: 11px; font-weight: 400; color: var(--muted); }

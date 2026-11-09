@@ -2,6 +2,7 @@
 //   #/                                leaderboards
 //   #/?stat=ts_pct&season=2025-26     leaderboard with options
 //   #/player/203999?season=2025-26    player page
+//   #/player/203999?season=2025-26&vs=1629029   player page with a comparison overlay
 //   #/team/LAL?season=2025-26        team page (roster + top percentiles)
 
 const $ = (sel, el = document) => el.querySelector(sel);
@@ -57,7 +58,7 @@ async function route() {
   const { parts, params } = parseHash();
   window.scrollTo(0, 0);
   try {
-    if (parts[0] === "player" && parts[1]) await renderPlayer(+parts[1], params.get("season"));
+    if (parts[0] === "player" && parts[1]) await renderPlayer(+parts[1], params.get("season"), params.get("vs"));
     else if (parts[0] === "team" && parts[1]) await renderTeam(parts[1], params.get("season"));
     else await renderLeaderboard(params);
   } catch (e) {
@@ -150,12 +151,20 @@ async function renderTeam(abbr, season) {
 
 // ------------------------------------------------------------------ player page
 
-async function renderPlayer(id, season) {
+async function renderPlayer(id, season, vs) {
   const qs = season ? `?season=${season}` : "";
   const d = await api(`/api/players/${id}${qs}`);
-  const shots = await api(`/api/players/${id}/shots?season=${d.season}`);
+  // Comparison player (?vs=ID), same season when they have it; the API falls
+  // back to their latest season otherwise, which the legend then names.
+  const vsId = vs && +vs !== id ? +vs : null;
+  const [shots, o] = await Promise.all([
+    api(`/api/players/${id}/shots?season=${d.season}`),
+    vsId ? api(`/api/players/${vsId}?season=${d.season}`).catch(() => null) : null,
+  ]);
   const p = d.player, s = d.stats;
-  document.title = `${p.full_name} · HoopScholar`;
+  document.title = o ? `${p.full_name} vs ${o.player.full_name} · HoopScholar` : `${p.full_name} · HoopScholar`;
+  const oBy = o ? Object.fromEntries(o.sliders.map((x) => [x.key, { ...x, who: o.player.full_name }])) : {};
+  const here = (extra = "") => `#/player/${id}?season=${d.season}${extra}`;
 
   const groups = {};
   d.sliders.forEach((x) => (groups[x.group] ??= []).push(x));
@@ -173,10 +182,21 @@ async function renderPlayer(id, season) {
 
     <div class="grid two">
       <section class="card">
-        <h2>${d.season} Percentile Rankings</h2>
+        <div class="card-head">
+          <h2>${d.season} Percentile Rankings</h2>
+          <div class="picker">
+            <input id="cmp" type="search" placeholder="Compare with a player…" autocomplete="off" aria-label="Compare with a player">
+            <ul id="cmp-results" class="search-results" hidden></ul>
+          </div>
+        </div>
+        ${o ? `<div class="compare-legend">
+          <span><span class="key a"></span>${esc(p.full_name)}</span>
+          <span><span class="key b"></span><a href="#/player/${o.player.player_id}?season=${o.season}">${esc(o.player.full_name)}</a>${o.season !== d.season ? ` <span class="muted">(${o.season}, no ${d.season} stats)</span>` : ""}${o.qualified ? "" : ` <span class="badge">not qualified</span>`}</span>
+          <a class="clear" href="${here()}">Clear</a>
+        </div>` : vsId ? `<p class="note">Couldn't load that comparison player.</p>` : ""}
         ${Object.entries(groups).map(([g, rows]) => `
           <div class="pgroup"><h3>${esc(g)}</h3>
-            ${rows.map(slider).join("")}
+            ${rows.map((x) => slider(x, oBy[x.key])).join("")}
           </div>`).join("")}
       </section>
 
@@ -219,11 +239,17 @@ async function renderPlayer(id, season) {
       ${d.similar.length ? `<ol class="similar">${d.similar.map((x) => `
         <li><a href="#/player/${x.player_id}?season=${d.season}">${esc(x.full_name)}</a>
           <span class="meta">${esc([x.team_abbr, x.position].filter(Boolean).join(" · "))}</span>
-          <span class="score" title="Cosine similarity of percentile profiles (1 = identical)">${Math.round(x.score * 100)}</span></li>`).join("")}</ol>`
+          <a class="cmp-link" href="${here(`&vs=${x.player_id}`)}" title="Overlay ${esc(x.full_name)} on the percentile bars">compare</a>
+          <span class="score" title="Cosine similarity of percentile profiles (100 = identical)">${Math.round(x.score * 100)}</span></li>`).join("")}</ol>`
       : `<p class="muted">${d.qualified ? "Not computed yet: runs with the next data update." : "Only computed for qualified players."}</p>`}
     </section>`;
 
-  $("#season").addEventListener("change", (e) => (location.hash = `#/player/${id}?season=${e.target.value}`));
+  $("#season").addEventListener("change", (e) => (location.hash = `#/player/${id}?season=${e.target.value}${vsId ? `&vs=${vsId}` : ""}`));
+  autocomplete($("#cmp"), $("#cmp-results"), {
+    href: (x) => here(`&vs=${x.player_id}`),
+    accept: (x) => x.kind === "player" && x.player_id !== id,
+    empty: "No players found",
+  });
 
   const state = { view: "dots", result: "all" };
   const draw = () => {
@@ -244,19 +270,32 @@ async function renderPlayer(id, season) {
   draw();
 }
 
-function slider(x) {
+// One percentile bar. y (optional) is the same stat for a comparison player,
+// drawn as a dark dot on the same track with its value under the main one.
+function slider(x, y = null) {
   const has = x.percentile !== null && x.percentile !== undefined;
   const p = has ? x.percentile : 0;
   const c = pctColor(x.percentile);
+  const hasY = y && y.percentile !== null && y.percentile !== undefined;
+  // Dots within 10 points would cover each other's numbers: push the comparison
+  // dot one dot-width (26px) toward its own side. The order stays right and
+  // the number on it is exact.
+  let yLeft = hasY ? `${y.percentile}%` : "";
+  if (hasY && has && Math.abs(y.percentile - p) < 10) {
+    const dir = y.percentile > p ? 1 : y.percentile < p ? -1 : (p >= 50 ? -1 : 1);
+    yLeft = `calc(${p}% ${dir > 0 ? "+" : "-"} 26px)`;
+  }
   return `
-    <div class="prow ${has ? "" : "na"}">
+    <div class="prow ${has || hasY ? "" : "na"}">
       <div class="label">${tip(x.key, x.label)}${x.low_sample ? ` <span class="badge" title="Only ${x.sample} attempts (under ${META.zone_min_fga}); treat this percentile as noisy">low sample</span>` : ""}</div>
       <div class="track">
         <div class="mid"></div>
         ${has ? `<div class="fill" style="width:${p}%;background:${c}"></div>
         <div class="dot" style="left:${p}%;background:${c}">${p}</div>` : ""}
+        ${hasY ? `<div class="dot vs${y.low_sample ? " low" : ""}" style="left:${yLeft}"
+          title="${esc(y.who)}: ${y.percentile}${y.low_sample ? " (low sample)" : ""}">${y.percentile}</div>` : ""}
       </div>
-      <div class="val">${fmt(x.value, x.fmt)}</div>
+      <div class="val">${fmt(x.value, x.fmt)}${y ? `<span class="vs-val">${fmt(y.value, y.fmt)}</span>` : ""}</div>
     </div>`;
 }
 
@@ -316,17 +355,18 @@ function shotChart(data, state) {
 
 // ------------------------------------------------------------------ search
 
-function setupSearch() {
-  const input = $("#search"), list = $("#search-results");
+// Type-ahead over /api/search, shared by the header search and the compare
+// picker. Results are real links (href), so click, Enter, and open-in-new-tab
+// all work. accept() filters results.
+function autocomplete(input, list, { href, accept = () => true, empty = "No players or teams found" }) {
   let timer, items = [], active = -1, seq = 0;
   const close = () => { list.hidden = true; active = -1; };
-  const href = (x) => x.kind === "team" ? `#/team/${encodeURIComponent(x.abbr)}` : `#/player/${x.player_id}`;
   const paint = () => {
     list.innerHTML = items.map((x, i) => `<li><a href="${href(x)}" class="${i === active ? "active" : ""}">
       <span>${esc(x.kind === "team" ? x.name : x.full_name)}</span><span class="meta">${esc(x.kind === "team"
         ? "Team"
         : [x.team_abbr, x.position, x.last_season].filter(Boolean).join(" · "))}</span></a></li>`).join("")
-      || `<li><a class="meta">No players or teams found</a></li>`;
+      || `<li><a class="meta">${esc(empty)}</a></li>`;
     list.hidden = false;
   };
   input.addEventListener("input", () => {
@@ -335,7 +375,7 @@ function setupSearch() {
     if (!q) return close();
     const mine = ++seq; // ignore a slow reply to an older query
     timer = setTimeout(async () => {
-      const res = await api(`/api/search?q=${encodeURIComponent(q)}`);
+      const res = (await api(`/api/search?q=${encodeURIComponent(q)}`)).filter(accept);
       if (mine === seq) { items = res; active = -1; paint(); }
     }, 150);
   });
@@ -347,7 +387,18 @@ function setupSearch() {
     if (e.key === "Escape") close();
   });
   list.addEventListener("click", () => { input.value = ""; close(); });
-  document.addEventListener("click", (e) => { if (!e.target.closest(".search")) close(); });
+}
+
+function setupSearch() {
+  const input = $("#search");
+  autocomplete(input, $("#search-results"), {
+    href: (x) => x.kind === "team" ? `#/team/${encodeURIComponent(x.abbr)}` : `#/player/${x.player_id}`,
+  });
+  // One listener for every dropdown (header and compare picker): a click
+  // outside a dropdown's own box closes it.
+  document.addEventListener("click", (e) => {
+    document.querySelectorAll(".search-results").forEach((l) => { if (!l.parentElement.contains(e.target)) l.hidden = true; });
+  });
   // "/" jumps to search from anywhere except a text field
   document.addEventListener("keydown", (e) => {
     if (e.key === "/" && !e.target.closest("input, select, textarea")) { e.preventDefault(); input.focus(); }

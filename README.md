@@ -140,7 +140,6 @@ python -m pytest tests/
 - More tracking data: `fetch.player_tracking` already accepts other `pt_measure_type`s
   (`Drives`, `CatchShoot`, `PullUpShot`, `Defense`, `Rebounding`). Add columns and sliders for them.
 - Year-over-year percentile history on the player page.
-- Player vs player comparison page.
 - Export the API responses to static JSON and host the whole site free on GitHub Pages/Vercel.
 - Swap the vanilla JS front end for React/Next.js once the pages settle.
 
