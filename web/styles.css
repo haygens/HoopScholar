@@ -273,3 +273,57 @@ table.lb .team-link { font-weight: 600; }
   table.lb thead th { position: sticky; top: var(--topbar-h); z-index: 2; background: #fff; box-shadow: inset 0 -1px 0 var(--line); }
   table.lb thead th.sorted { background: #f4f6f9; }
 }
+
+/* =====================================================================
+   Mobile
+   ===================================================================== */
+/* Grid panels never grow to fit wide content; that content scrolls inside
+   its own wrapper instead, so the page itself never scrolls sideways. */
+.grid > * { min-width: 0; }
+.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.search-toggle { display: none; }
+:root { --rank-w: 34px; }
+
+@media (max-width: 900px) {
+  /* Tables scroll sideways with the first column pinned (leaderboard: rank and
+     player). Pinned cells need an opaque background, including on hover. */
+  .table-wrap :is(th, td):first-child { position: sticky; left: 0; z-index: 1; background: #fff; }
+  .table-wrap table:not(.lb) :is(th, td):first-child { box-shadow: inset -1px 0 0 var(--line); }
+  .table-wrap tbody tr:hover > td:first-child { background: #f5f7fa; }
+  table.lb :is(th, td):first-child { width: var(--rank-w); min-width: var(--rank-w); max-width: var(--rank-w); }
+  table.lb :is(th, td):nth-child(2) { position: sticky; left: var(--rank-w); z-index: 1; background: #fff; box-shadow: inset -1px 0 0 var(--line); }
+  table.lb tbody tr:hover > td:is(:first-child, :nth-child(2)) { background: #eaf0f7; }
+  table.career tr.grp td:first-child { background: #fff; }
+}
+
+@media (max-width: 700px) {
+  /* Touch targets: tabs, toggles, filters and pickers at least 44px tall */
+  .tabs a { display: inline-flex; align-items: center; min-height: 44px; }
+  .seg button, .seg.small button { min-height: 44px; }
+  .filters select, .controls select, .picker input, .band-season select { min-height: 44px; }
+  .controls label { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; }
+  .controls input[type="checkbox"] { width: 20px; height: 20px; }
+  .filters { gap: 8px 12px; }
+  .filters label { flex: 1 1 140px; }
+  .filters select { flex: 1; }
+  .picker { width: 100%; }
+}
+
+@media (max-width: 600px) {
+  main { padding: 16px; }
+  .topbar { padding: 0 8px 0 16px; gap: 16px; }
+  .card { padding: 14px; }
+  .prow { grid-template-columns: 112px 1fr 52px; gap: 8px; }
+  .hide-sm { display: none; }
+
+  /* Search collapses to an icon; tapping it opens the field over the top bar */
+  .search { position: static; width: auto; margin-left: auto; }
+  .search input { display: none; }
+  .search-toggle { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px;
+    background: none; border: 0; border-radius: 6px; color: #fff; cursor: pointer; }
+  .search-toggle:focus-visible { outline: 2px solid #fff; outline-offset: -4px; }
+  .search-toggle .i-close, .search.open .search-toggle .i-search { display: none; }
+  .search.open .search-toggle .i-close { display: block; }
+  .search.open input { display: block; position: absolute; left: 12px; right: 60px; top: 8px; height: 40px; width: auto; z-index: 11; }
+  .search.open .search-results { position: absolute; top: calc(var(--topbar-h) - 4px); left: 12px; right: 12px; z-index: 11; }
+}

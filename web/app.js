@@ -70,6 +70,8 @@ async function route() {
 
 // ------------------------------------------------------------------ leaderboard
 
+const PHONE_HIDDEN = new Set(["gp", "min"]); // leaderboard columns dropped under 600px (unless sorted by)
+
 async function renderLeaderboard(params) {
   const stat = params.get("stat") || "pts";
   const season = params.get("season") || META.seasons[0];
@@ -99,13 +101,13 @@ async function renderLeaderboard(params) {
       <table class="lb">
         <thead><tr><th>#</th><th class="l">Player</th><th class="l">Team</th>${cols.map(([k, l]) => k === stat
           ? `<th class="sorted" aria-sort="${(m.higher_better ? "descending" : "ascending")}">${tip(k, l)}</th>`
-          : th(k, l)).join("")}${th("percentile", "Pctl")}</tr></thead>
+          : th(k, l, PHONE_HIDDEN.has(k) ? "hide-sm" : "")).join("")}${th("percentile", "Pctl")}</tr></thead>
         <tbody>${data.rows.map((r) => `
           <tr>
             <td>${r.rank}</td>
             <td class="l"><a href="#/player/${r.player_id}?season=${season}">${esc(r.full_name)}</a></td>
             <td class="l">${teamLink(r.team_abbr, season, true)}</td>
-            ${cols.map(([k, , f]) => `<td${k === stat ? ` class="sorted"` : ""}>${fmt(r[k], f)}</td>`).join("")}
+            ${cols.map(([k, , f]) => `<td${k === stat ? ` class="sorted"` : PHONE_HIDDEN.has(k) ? ` class="hide-sm"` : ""}>${fmt(r[k], f)}</td>`).join("")}
             <td>${r.percentile == null ? "" : `<span class="chip" style="background:${pctColor(r.percentile)}">${r.percentile}</span>`}</td>
           </tr>`).join("")}
         </tbody>
@@ -394,7 +396,7 @@ function shotTitle(s) {
 // Player FG% by zone vs the full-season league FG% from that zone.
 function zoneTable(zones) {
   if (!zones.length) return `<p class="muted">No shots match these filters.</p>`;
-  return `<table>
+  return `<div class="table-wrap"><table>
     <thead><tr><th class="l">Zone</th><th>FGA</th><th>FGM</th><th>FG%</th>${th("zone_league", "League")}${th("zone_diff", "+/-")}</tr></thead>
     <tbody>${zones.map((z) => {
       const diff = z.league_fg_pct == null ? null : z.fg_pct - z.league_fg_pct;
@@ -402,7 +404,7 @@ function zoneTable(zones) {
         <td class="muted">${fmt(z.league_fg_pct, "pct")}</td>
         <td style="color:${diffColor(diff)};font-weight:700">${diff == null ? "—" : (diff >= 0 ? "+" : "") + (diff * 100).toFixed(1)}</td></tr>`;
     }).join("")}</tbody>
-  </table>
+  </table></div>
   ${zones.some((z) => z.no_league_avg) ? `<p class="note">— Backcourt has no league average: NBA.com's official FGA leaves out most missed end-of-quarter heaves, so the few that remain are mostly makes.</p>` : ""}`;
 }
 
@@ -671,18 +673,30 @@ function autocomplete(input, list, { href, accept = () => true, empty = "No play
 }
 
 function setupSearch() {
-  const input = $("#search");
+  const input = $("#search"), box = input.closest(".search"), toggle = box.querySelector(".search-toggle");
   autocomplete(input, $("#search-results"), {
     href: (x) => x.kind === "team" ? `#/team/${encodeURIComponent(x.abbr)}` : `#/player/${x.player_id}`,
   });
+  // Phones: the search is an icon that expands over the top bar. (On wider
+  // screens the toggle is hidden and the "open" class does nothing.)
+  const setOpen = (open) => {
+    box.classList.toggle("open", open);
+    toggle.setAttribute("aria-expanded", open);
+    toggle.setAttribute("aria-label", open ? "Close search" : "Search players or teams");
+    if (open) input.focus();
+  };
+  toggle.addEventListener("click", () => setOpen(!box.classList.contains("open")));
+  input.addEventListener("keydown", (e) => { if (e.key === "Escape" && box.classList.contains("open")) { setOpen(false); toggle.focus(); } });
+  window.addEventListener("hashchange", () => setOpen(false)); // picked a result
   // One listener for every dropdown (header and compare picker): a click
   // outside a dropdown's own box closes it.
   document.addEventListener("click", (e) => {
     document.querySelectorAll(".search-results").forEach((l) => { if (!l.parentElement.contains(e.target)) l.hidden = true; });
+    if (!box.contains(e.target) && !input.value) setOpen(false);
   });
   // "/" jumps to search from anywhere except a text field
   document.addEventListener("keydown", (e) => {
-    if (e.key === "/" && !e.target.closest("input, select, textarea")) { e.preventDefault(); input.focus(); }
+    if (e.key === "/" && !e.target.closest("input, select, textarea")) { e.preventDefault(); setOpen(true); input.focus(); }
   });
 }
 

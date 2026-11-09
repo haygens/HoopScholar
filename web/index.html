@@ -16,6 +16,11 @@
       <a href="#/">Leaderboards</a>
     </nav>
     <div class="search">
+      <!-- Phones: the search collapses to this button (see styles.css) -->
+      <button class="search-toggle" type="button" aria-label="Search players or teams" aria-expanded="false" aria-controls="search">
+        <svg class="i-search" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M15.5 15.5 21 21" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+        <svg class="i-close" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
       <input id="search" type="search" placeholder="Search players or teams  ( / )" autocomplete="off" aria-label="Search players or teams">
       <ul id="search-results" class="search-results" hidden></ul>
     </div>
