@@ -58,8 +58,6 @@ main { max-width: 1180px; margin: 0 auto; padding: 24px; }
 .player-head select { margin-left: auto; }
 select, .controls input[type=checkbox] { font-size: 14px; }
 select { padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); background: #fff; }
-.tag { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 99px; background: #eef1f5; color: var(--muted); }
-.tag.warn { background: #fff0e6; color: #a3480f; }
 
 /* ---------- percentile sliders (Savant-style) */
 .pgroup { margin-bottom: 18px; }
@@ -124,8 +122,6 @@ td.sorted { font-weight: 700; color: var(--ink); }
 .tooltip { position: fixed; z-index: 50; max-width: 280px; padding: 7px 10px; border-radius: 6px; background: #1f2430; color: #fff;
   font-size: 12px; line-height: 1.4; font-weight: 400; text-transform: none; letter-spacing: 0; white-space: normal;
   box-shadow: 0 4px 14px rgba(0,0,0,.18); pointer-events: none; }
-.tags { display: flex; flex-wrap: wrap; gap: 6px; }
-.tag.early { background: #fdf0d5; color: #8a5a00; }
 
 /* ---------- team page */
 .team-link { color: inherit; font-weight: 600; }
@@ -202,4 +198,33 @@ table.career tr.grp td { font-size: 11px; text-transform: uppercase; letter-spac
 .team-link:focus-visible, .compare-legend a:focus-visible, th a:focus-visible { text-decoration: underline; }
 
 /* ---------- numbers line up: tabular figures wherever stats are shown */
-td, th, .val, .vs-val, .chip, .track .dot, .score, .cv, .tag, .filters select, .chart-tip { font-variant-numeric: tabular-nums; }
+td, th, .val, .vs-val, .chip, .track .dot, .score, .cv, .filters select, .chart-tip { font-variant-numeric: tabular-nums; }
+
+/* ---------- player band: full width, team color, white text throughout */
+#band:empty { display: none; }
+.band { color: #fff; background: var(--team);
+  background: linear-gradient(105deg, var(--team) 0%, var(--team) 45%, color-mix(in srgb, var(--team) 70%, #000) 100%); }
+.band-inner { max-width: 1180px; margin: 0 auto; padding: 22px 24px 20px;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "main season" "main stats"; gap: 12px 32px; }
+.band-main { grid-area: main; align-self: end; min-width: 0; }
+.band h1 { margin: 0 0 6px; font-family: var(--display); font-weight: 700; font-size: 52px; line-height: .95; letter-spacing: .005em; }
+.band .bio { font-size: 15px; }
+.band .bio .team-link { color: #fff; font-weight: 700; }
+.band .pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.band .pill { font-size: 12px; padding: 3px 10px; border-radius: 99px; color: #fff;
+  background: rgba(0, 0, 0, .24); border: 1px solid rgba(255, 255, 255, .35); }
+.band .pill.early { background: #fdf0d5; color: #6a4b00; border-color: #fdf0d5; }
+.band .headline { grid-area: stats; align-self: end; display: flex; gap: 28px; margin: 0; }
+.band .headline div { display: flex; flex-direction: column-reverse; align-items: flex-start; }
+.band .headline dd { margin: 0; font-family: var(--display); font-weight: 700; font-size: 38px; line-height: 1; font-variant-numeric: tabular-nums; }
+.band .headline dt { font-size: 12px; font-weight: 600; letter-spacing: .06em; margin-top: 4px; }
+.band .tip:hover, .band .tip:focus-visible { text-decoration-color: #fff; }
+.band-season { grid-area: season; justify-self: end; align-self: start; display: inline-flex; align-items: center; gap: 8px; font-size: 13px; }
+.band-season select { font-size: 14px; padding: 5px 8px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, .5); }
+@media (max-width: 700px) {
+  .band-inner { grid-template-columns: 1fr; grid-template-areas: "main" "stats" "season"; padding: 18px 16px; gap: 16px; }
+  .band h1 { font-size: 40px; }
+  .band .headline { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .band .headline dd { font-size: 30px; }
+  .band-season { justify-self: start; }
+}

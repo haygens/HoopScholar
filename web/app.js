@@ -58,10 +58,12 @@ async function route() {
   const { parts, params } = parseHash();
   window.scrollTo(0, 0);
   try {
+    if (parts[0] !== "player") $("#band").innerHTML = "";
     if (parts[0] === "player" && parts[1]) await renderPlayer(+parts[1], params.get("season"), params.get("vs"), params.get("tab"));
     else if (parts[0] === "team" && parts[1]) await renderTeam(parts[1], params.get("season"));
     else await renderLeaderboard(params);
   } catch (e) {
+    $("#band").innerHTML = "";
     app.innerHTML = `<div class="card"><h2>Something went wrong</h2><p>${esc(e.message)}</p></div>`;
   }
 }
@@ -156,19 +158,42 @@ async function renderTeam(abbr, season) {
 // ------------------------------------------------------------------ player page
 
 // Name, bio, tags, season picker and the tab row, shared by all three tabs.
+// Team primary colors for the player band and team dots. Each passes 4.5:1
+// contrast with white text (Portland's red is darkened slightly to get there).
+const TEAM_COLORS = {
+  ATL: "#C8102E", BOS: "#007A33", BKN: "#000000", CHA: "#1D1160", CHI: "#CE1141", CLE: "#860038",
+  DAL: "#00538C", DEN: "#0E2240", DET: "#C8102E", GSW: "#1D428A", HOU: "#CE1141", IND: "#002D62",
+  LAC: "#1D428A", LAL: "#552583", MEM: "#5D76A9", MIA: "#98002E", MIL: "#00471B", MIN: "#0C2340",
+  NOP: "#0C2340", NYK: "#006BB6", OKC: "#007AC1", ORL: "#0077C0", PHI: "#006BB6", PHX: "#1D1160",
+  POR: "#D7383C", SAC: "#5A2D81", SAS: "#000000", TOR: "#CE1141", UTA: "#002B5C", WAS: "#002B5C",
+};
+const teamColor = (abbr) => TEAM_COLORS[abbr] || "#0f2340"; // free agents: site navy
+
+// Full-width band above the page (team color, name, bio, 4 headline stats,
+// status pills, season picker), written into #band. Returns the tab row,
+// which goes at the top of the page body.
 function playerHead(d, tab, vsId) {
   const p = d.player, s = d.stats;
+  const abbr = s.team_abbr || p.team_abbr;
   const link = (t) => `#/player/${p.player_id}?season=${d.season}${t === "overview" ? "" : `&tab=${t}`}${vsId ? `&vs=${vsId}` : ""}`;
-  return `
-    <section class="player-head">
-      <div>
-        <h1>${esc(p.full_name)}</h1>
-        <div class="bio">${[teamLink(s.team_abbr || p.team_abbr, d.season), ...[p.position, p.height, p.weight && p.weight + " lb", s.age && "Age " + s.age].filter(Boolean).map(esc)].filter(Boolean).join(" · ")}</div>
+  const headline = [["pts", "PTS"], ["reb", "REB"], ["ast", "AST"], ["ts_pct", "TS%", "pct"]];
+  $("#band").innerHTML = `
+    <section class="band" style="--team:${teamColor(abbr)}" aria-label="${esc(p.full_name)}">
+      <div class="band-inner">
+        <div class="band-main">
+          <h1>${esc(p.full_name)}</h1>
+          <div class="bio">${[teamLink(abbr, d.season), ...[p.position, p.height, p.weight && p.weight + " lb", s.age && "Age " + s.age].filter(Boolean).map(esc)].filter(Boolean).join(" · ")}</div>
+          <div class="pills">${d.qualified ? `<span class="pill">Qualified · ranked vs ${d.pool_size} players</span>` : `<span class="pill">Not qualified · percentiles vs ${d.pool_size} qualified players</span>`}
+            ${d.early_season ? `<span class="pill early" title="Percentiles settle down as the season goes on.">Early season · league leader has ${d.league_max_gp} GP</span>` : ""}</div>
+        </div>
+        <dl class="headline" aria-label="${d.season} per game">
+          ${headline.map(([k, l, f]) => `<div><dt>${tip(k, l)}</dt><dd>${fmt(s[k], f)}</dd></div>`).join("")}
+        </dl>
+        <label class="band-season"><span>Season</span>
+          <select id="season">${d.seasons.map((x) => `<option ${x === d.season ? "selected" : ""}>${x}</option>`).join("")}</select></label>
       </div>
-      <div class="tags">${d.qualified ? `<span class="tag">Qualified · ranked vs ${d.pool_size} players</span>` : `<span class="tag warn">Not qualified · percentiles vs ${d.pool_size} qualified players</span>`}
-        ${d.early_season ? `<span class="tag early" title="Percentiles settle down as the season goes on.">Early season · league leader has ${d.league_max_gp} GP, so expect big swings</span>` : ""}</div>
-      <select id="season" aria-label="Season">${d.seasons.map((x) => `<option ${x === d.season ? "selected" : ""}>${x}</option>`).join("")}</select>
-    </section>
+    </section>`;
+  return `
     <nav class="tabs" aria-label="Player sections">
       ${[["overview", "Overview"], ["games", "Game Log"], ["career", "Career"]].map(([t, label]) =>
         `<a href="${link(t)}" class="${t === tab ? "on" : ""}" ${t === tab ? 'aria-current="page"' : ""}>${label}</a>`).join("")}
