@@ -51,7 +51,7 @@ main { max-width: 1180px; margin: 0 auto; padding: 24px; }
 .section { margin-top: 36px; padding-top: 20px; border-top: 1px solid var(--line); }
 .section.first { margin-top: 0; padding-top: 4px; border-top: 0; }
 .card h2, h2 { margin: 0 0 14px; font-family: var(--display); font-weight: 600; font-size: 19px; line-height: 1.15; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
-.grid { display: grid; gap: 20px; }
+.grid { display: grid; gap: 20px; align-items: start; } /* each panel keeps its own height */
 @media (min-width: 900px) { .grid.two { grid-template-columns: 1fr 1fr; } }
 
 /* ---------- player header */
@@ -63,8 +63,11 @@ select, .controls input[type=checkbox] { font-size: 14px; }
 select { padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); background: #fff; }
 
 /* ---------- percentile sliders (Savant-style) */
-.pgroup { margin-bottom: 18px; }
-.pgroup h3 { font-family: var(--display); font-weight: 600; font-size: 15px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 6px; }
+/* Slider groups: rows stay 34px (dots unchanged); the space around group
+   headings is what made the card long. */
+.pgroup { margin-bottom: 8px; }
+.pgroup:last-child { margin-bottom: 0; }
+.pgroup h3 { font-family: var(--display); font-weight: 600; font-size: 15px; line-height: 1.1; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 1px; }
 .prow { display: grid; grid-template-columns: 150px 1fr 64px; align-items: center; gap: 12px; height: 34px; }
 .prow .label { font-size: 13px; }
 .prow .val { font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
@@ -142,7 +145,7 @@ tr.nq td { color: var(--muted); }
 .similar .score { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 700; color: var(--muted); }
 
 /* ---------- compare mode */
-.card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin-bottom: 14px; }
+.card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin-bottom: 10px; }
 .card .card-head h2 { margin: 0; }
 .picker { position: relative; width: min(230px, 100%); }
 .picker input { width: 100%; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }
@@ -164,7 +167,7 @@ tr.nq td { color: var(--muted); }
 .tabs a { padding: 8px 14px; font-size: 14px; font-weight: 600; text-decoration: none; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .tabs a:hover { color: var(--ink); }
 .tabs a.on { color: var(--ink); border-bottom-color: var(--accent); }
-.seg.small { margin: -4px 0 12px; }
+.seg.small { margin: 0 0 8px; }
 .seg.small button { padding: 4px 10px; font-size: 12px; }
 
 /* ---------- trend charts (dataviz marks: 2px line, r=4 dots with a 2px surface ring, 1px solid grid) */
