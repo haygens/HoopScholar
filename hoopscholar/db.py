@@ -45,6 +45,32 @@ def compact(conn: sqlite3.Connection) -> None:
 def init_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA.read_text())
     conn.commit()
+    for col in migrate(conn):
+        print(f"migrated: added column {col}")
+
+
+def migrate(conn: sqlite3.Connection) -> list[str]:
+    """Add any column schema.sql declares that this (older) database lacks.
+
+    Builds schema.sql in memory and diffs PRAGMA table_info, so columns that
+    already exist are skipped and running it again is a no-op."""
+    ref = sqlite3.connect(":memory:")
+    ref.executescript(SCHEMA.read_text())
+    added = []
+    tables = [r[0] for r in ref.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
+    for table in tables:
+        have = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        for _cid, name, ctype, _notnull, default, _pk in ref.execute(f"PRAGMA table_info({table})"):
+            if name not in have:
+                ddl = f"ALTER TABLE {table} ADD COLUMN {name} {ctype}"
+                if default is not None:
+                    ddl += f" DEFAULT {default}"
+                conn.execute(ddl)
+                added.append(f"{table}.{name}")
+    ref.close()
+    conn.commit()
+    return added
 
 
 def upsert(conn: sqlite3.Connection, table: str, rows: Sequence[dict], key: Sequence[str]) -> int:

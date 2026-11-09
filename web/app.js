@@ -19,6 +19,7 @@ function fmt(v, kind) {
   if (v === null || v === undefined || Number.isNaN(v)) return "—";
   switch (kind) {
     case "pct": return (v * 100).toFixed(1) + "%";
+    case "pct100": return v.toFixed(1) + "%";
     case "num2": return v.toFixed(2);
     case "int": return Math.round(v).toString();
     default: return v.toFixed(1);

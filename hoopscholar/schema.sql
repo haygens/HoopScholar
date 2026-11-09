@@ -1,5 +1,9 @@
 -- HoopScholar schema (SQLite; written to port to Postgres with minimal changes:
 -- swap INTEGER PRIMARY KEY AUTOINCREMENT -> SERIAL and REAL -> DOUBLE PRECISION).
+--
+-- To add a column, just add it here: db.migrate() (run by init_schema, so by
+-- backfill.py and nightly.py) ALTERs it into older databases. New columns must
+-- be nullable or have a DEFAULT. Never rename or drop a column here.
 
 CREATE TABLE IF NOT EXISTS teams (
     team_id     INTEGER PRIMARY KEY,
@@ -86,6 +90,7 @@ CREATE TABLE IF NOT EXISTS player_season_stats (
     ts_pct REAL, efg_pct REAL, usg_pct REAL, ast_pct REAL, ast_to REAL,
     reb_pct REAL, oreb_pct REAL, dreb_pct REAL,
     off_rating REAL, def_rating REAL, net_rating REAL, pie REAL,
+    tov_pct REAL,      -- 100 * TOV / (FGA + 0.44*FTA + TOV), from season totals
     -- Tracking (Second Spectrum aggregates published on NBA.com)
     dist_miles REAL, avg_speed REAL,
     updated_at  TEXT,

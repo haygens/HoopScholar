@@ -13,7 +13,7 @@ class Metric:
     key: str
     label: str
     group: str
-    fmt: str = "num1"            # 'num1' 12.3 | 'pct' 0.583 -> 58.3% | 'int'
+    fmt: str = "num1"            # 'num1' 12.3 | 'pct' 0.583 -> 58.3% | 'int'  | 'pct100' 9.9 -> 9.9%
     higher_better: bool = True
     sample_col: str | None = None  # attempts behind a rate stat (low-sample handling)
 
@@ -30,7 +30,7 @@ METRICS: list[Metric] = [
     Metric("ft_pct", "FT%", "Shooting", "pct"),
     Metric("ast", "Assists", "Playmaking"),
     Metric("ast_pct", "Assist %", "Playmaking", "pct"),
-    Metric("tov", "Turnovers", "Playmaking", higher_better=False),
+    Metric("tov_pct", "TOV%", "Playmaking", "pct100", higher_better=False),
     Metric("reb_pct", "Rebound %", "Defense & Boards", "pct"),
     Metric("stl", "Steals", "Defense & Boards"),
     Metric("blk", "Blocks", "Defense & Boards"),
@@ -46,6 +46,7 @@ METRIC_BY_KEY = {m.key: m for m in METRICS}
 LEADERBOARD_EXTRA = [
     Metric("reb", "Rebounds", "Box"),
     Metric("min", "Minutes", "Box"),
+    Metric("tov", "Turnovers", "Box", higher_better=False),
     Metric("fga", "FGA", "Box"),
     Metric("efg_pct", "eFG%", "Box", "pct"),
     Metric("rim_rate", "Rim Rate", "Shot Profile", "pct"),
@@ -129,6 +130,12 @@ def season_frame(conn, season: str) -> pd.DataFrame:
     if df.empty:
         df["qualified"] = []
         return df
+    # Older databases (deployed before tov_pct existed) or rows loaded without it:
+    # fall back to the per-game line so the slider never goes blank.
+    if "tov_pct" not in df:
+        df["tov_pct"] = np.nan
+    plays = df["fga"] + 0.44 * df["fta"] + df["tov"]
+    df["tov_pct"] = df["tov_pct"].fillna(100 * df["tov"] / plays.where(plays > 0))
     max_gp = df["gp"].max() or 0
     df["qualified"] = (df["gp"] >= config.QUAL_GP_SHARE * max_gp) & (df["min"] >= config.QUAL_MIN_MPG)
     return df

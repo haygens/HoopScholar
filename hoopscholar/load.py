@@ -144,9 +144,23 @@ ADV_COLS = {
 TRACK_COLS = {"DIST_MILES": "dist_miles", "AVG_SPEED": "avg_speed"}
 
 
+def tov_pct(tov, fga, fta):
+    """100 * TOV / (FGA + 0.44*FTA + TOV): turnovers per 100 plays that end in a
+    shot, a trip to the line, or a turnover. (NBA.com's TM_TOV_PCT also counts
+    assists in the denominator, so it's a different stat.)"""
+    if tov is None or fga is None or fta is None:
+        return None
+    plays = fga + 0.44 * fta + tov
+    return 100 * tov / plays if plays > 0 else None
+
+
 def load_season_stats(conn, season: str, base: pd.DataFrame,
                       adv: pd.DataFrame | None = None,
-                      track: pd.DataFrame | None = None) -> int:
+                      track: pd.DataFrame | None = None,
+                      totals: pd.DataFrame | None = None) -> int:
+    """totals (Base, per_mode='Totals') is optional: it's used for TOV% because
+    per-game averages arrive rounded to one decimal. Without it, TOV% comes
+    from the per-game line."""
     ensure_players(conn, base)
     rows: dict[int, dict] = {}
     for frame, mapping in ((base, BASE_COLS), (adv, ADV_COLS), (track, TRACK_COLS)):
@@ -160,6 +174,13 @@ def load_season_stats(conn, season: str, base: pd.DataFrame,
             for src, dst in mapping.items():
                 if src in r:
                     row[dst] = _clean(r[src])
+    for frame in (totals, base):  # totals win; the per-game line fills anyone missing
+        if frame is None or frame.empty:
+            continue
+        for r in frame.to_dict("records"):
+            row = rows.get(int(r["PLAYER_ID"]))
+            if row is not None and row.get("tov_pct") is None:
+                row["tov_pct"] = tov_pct(_clean(r.get("TOV")), _clean(r.get("FGA")), _clean(r.get("FTA")))
     now = db.now_iso()
     # every row needs the same columns for executemany
     all_cols = {c for r in rows.values() for c in r}

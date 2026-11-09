@@ -95,10 +95,13 @@ lists only the libraries the website needs; `requirements.txt` stays the full lo
   ≥ 15 MPG (`HOOP_QUAL_GP_SHARE`, `HOOP_QUAL_MIN_MPG`). The rule scales with the season, so it
   works in November and in April.
 - **Percentiles** rank every player against the qualified pool only, with ties sharing a midpoint
-  rank. The worst qualified player is 0 and the best is 100. Lower-is-better stats (turnovers, defensive rating)
+  rank. The worst qualified player is 0 and the best is 100. Lower-is-better stats (TOV%, defensive rating)
   are flipped so red always means good. Players who don't qualify still get a percentile, but the page
   labels them "not qualified".
-- **League zone FG%** is total made / total attempted over every league shot in that zone. Backcourt has no league average: NBA.com's official FGA leaves out most missed end-of-period heaves, so the few that remain are mostly makes.
+- **TOV%** is 100 × TOV / (FGA + 0.44 × FTA + TOV) from season totals. It's not NBA.com's `TM_TOV_PCT`,
+  which also puts assists in the denominator. Raw turnovers per game stay in the season stats table and leaderboard.
+- **Schema changes** go in `schema.sql` only: `db.migrate()` runs from `backfill.py` and `nightly.py` and adds any
+  missing column to an older database. The API works with an older database too (missing columns show as "—" or fall back).
 - **Zone FG%** (rim, mid-range, corner 3) is shown for any number of attempts. Under 25 attempts
   (`HOOP_ZONE_MIN_FGA`) the slider gets a "low sample" badge. Each zone's percentile pool is the qualified
   players with at least 25 × (league max GP / 82) attempts there (never below 5, `HOOP_ZONE_POOL_FLOOR`), so

@@ -83,13 +83,14 @@ def shots_for_player(season: str, player_id: int) -> pd.DataFrame:
     )
 
 
-def player_stats(season: str, measure: str = "Base") -> pd.DataFrame:
-    """measure: 'Base' (box score per game) or 'Advanced' (TS%, USG%, ratings...)."""
+def player_stats(season: str, measure: str = "Base", per_mode: str = "PerGame") -> pd.DataFrame:
+    """measure: 'Base' (box score) or 'Advanced' (TS%, USG%, ratings...).
+    per_mode: 'PerGame' or 'Totals' (unrounded, used for TOV%)."""
     return _call(
         leaguedashplayerstats.LeagueDashPlayerStats,
         season=season,
         season_type_all_star=config.SEASON_TYPE,
-        per_mode_detailed="PerGame",
+        per_mode_detailed=per_mode,
         measure_type_detailed_defense=measure,
     )
 

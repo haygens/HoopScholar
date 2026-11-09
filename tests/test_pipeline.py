@@ -37,7 +37,7 @@ def fake_fetchers(cutoff: str):
     fetch.team_game_log = lambda season, date_from=None: since(log, "GAME_DATE", date_from)
     fetch.shots_for_team = lambda season, team_id, date_from=None: since(
         shots[shots["TEAM_ID"] == team_id], "_iso", date_from).drop(columns="_iso")
-    fetch.player_stats = lambda season, measure="Base": base if measure == "Base" else adv
+    fetch.player_stats = lambda season, measure="Base", per_mode="PerGame": base if measure == "Base" else adv
     fetch.player_tracking = lambda season, measure="SpeedDistance": track
     return shots
 
@@ -77,8 +77,10 @@ def test_backfill_then_nightly():
     pct = metrics.percentiles(frame).set_index("player_id")
     q = frame[frame["qualified"]].set_index("player_id")
     assert pct.loc[q.index, "pts"].min() == 0 and pct.loc[q.index, "pts"].max() == 100
-    best_tov = q["tov"].idxmin()
-    assert pct.loc[best_tov, "tov"] == 100
+    best_tov = q["tov_pct"].idxmin()
+    assert pct.loc[best_tov, "tov_pct"] == 100
+    r = q.loc[best_tov]
+    assert abs(r["tov_pct"] - 100 * r["tov"] / (r["fga"] + 0.44 * r["fta"] + r["tov"])) < 1e-9
     # Zone FG% is stored at any sample size; low samples are flagged and kept out of the pool
     rim = metrics.METRIC_BY_KEY["rim_fg_pct"]
     small = frame[(frame["rim_fga"] > 0) & (frame["rim_fga"] < 25)]

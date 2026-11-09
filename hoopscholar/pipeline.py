@@ -36,11 +36,16 @@ def ingest_season_stats(conn, season: str) -> int:
     base = fetch.player_stats(season, "Base")
     adv = fetch.player_stats(season, "Advanced")
     try:
+        totals = fetch.player_stats(season, "Base", per_mode="Totals")
+    except RuntimeError as e:
+        print(f"  season totals unavailable, TOV% from per-game averages: {e}")
+        totals = None
+    try:
         track = fetch.player_tracking(season, "SpeedDistance")
     except RuntimeError as e:
         print(f"  tracking stats unavailable, skipping: {e}")
         track = None
-    n = load.load_season_stats(conn, season, base, adv, track)
+    n = load.load_season_stats(conn, season, base, adv, track, totals)
     conn.commit()
     print(f"season stat lines: {n}")
     return n
