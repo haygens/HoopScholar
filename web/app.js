@@ -58,15 +58,19 @@ async function route() {
   const { parts, params } = parseHash();
   window.scrollTo(0, 0);
   try {
+    if (parts[0] !== "player") $("#band").innerHTML = "";
     if (parts[0] === "player" && parts[1]) await renderPlayer(+parts[1], params.get("season"), params.get("vs"), params.get("tab"));
     else if (parts[0] === "team" && parts[1]) await renderTeam(parts[1], params.get("season"));
     else await renderLeaderboard(params);
   } catch (e) {
+    $("#band").innerHTML = "";
     app.innerHTML = `<div class="card"><h2>Something went wrong</h2><p>${esc(e.message)}</p></div>`;
   }
 }
 
 // ------------------------------------------------------------------ leaderboard
+
+const PHONE_HIDDEN = new Set(["gp", "min"]); // leaderboard columns dropped under 600px (unless sorted by)
 
 async function renderLeaderboard(params) {
   const stat = params.get("stat") || "pts";
@@ -74,31 +78,36 @@ async function renderLeaderboard(params) {
   const qualified = params.get("all") !== "1";
   const data = await api(`/api/leaderboard?stat=${stat}&season=${season}&qualified=${qualified}&limit=100`);
   const m = META.sortable.find((x) => x.key === stat);
+  // Standard columns; the sorted stat is highlighted in place when it's one of
+  // them, and only added as its own column when it isn't.
+  const cols = [["gp", "GP", "int"], ["min", "MIN"], ["pts", "PTS"], ["reb", "REB"], ["ast", "AST"], ["ts_pct", "TS%", "pct"]];
+  if (!cols.some(([k]) => k === stat)) cols.push([stat, m.label, m.fmt]);
 
   const groups = {};
   META.sortable.forEach((s) => (groups[s.group] ??= []).push(s));
   const statOptions = Object.entries(groups).map(([g, ms]) =>
     `<optgroup label="${esc(g)}">${ms.map((s) => `<option value="${s.key}" ${s.key === stat ? "selected" : ""}>${esc(s.label)}</option>`).join("")}</optgroup>`).join("");
 
+  document.title = `${m.label} leaders · ${season} · HoopScholar`;
   app.innerHTML = `
-    <h1 class="page-title">Leaderboard: ${esc(m.label)}</h1>
+    <h1 class="page-title">${esc(m.label)} leaders · ${esc(season)}</h1>
     <div class="controls">
       <label>Stat <select id="lb-stat">${statOptions}</select></label>
       <label>Season <select id="lb-season">${META.seasons.map((s) => `<option ${s === season ? "selected" : ""}>${s}</option>`).join("")}</select></label>
       <label><input type="checkbox" id="lb-q" ${qualified ? "checked" : ""}> Qualified only</label>
       <span class="muted">Qualified = ${Math.round(META.qualification.gp_share * 100)}% of max games played and ${META.qualification.min_mpg}+ MPG${data.minimum ? ` · ranked only with ${data.minimum.value}+ ${esc(data.minimum.unit)} (scales with the season)` : ""}</span>
     </div>
-    <div class="card table-wrap">
-      <table>
-        <thead><tr><th>#</th><th class="l">Player</th><th class="l">Team</th>${th("gp", "GP")}${th("min", "MIN")}${th("pts", "PTS")}${th("reb", "REB")}${th("ast", "AST")}${th("ts_pct", "TS%")}${th(stat, m.label)}${th("percentile", "Pctl")}</tr></thead>
+    <div class="table-wrap lb-wrap">
+      <table class="lb">
+        <thead><tr><th>#</th><th class="l">Player</th><th class="l">Team</th>${cols.map(([k, l]) => k === stat
+          ? `<th class="sorted" aria-sort="${(m.higher_better ? "descending" : "ascending")}">${tip(k, l)}</th>`
+          : th(k, l, PHONE_HIDDEN.has(k) ? "hide-sm" : "")).join("")}${th("percentile", "Pctl")}</tr></thead>
         <tbody>${data.rows.map((r) => `
           <tr>
             <td>${r.rank}</td>
             <td class="l"><a href="#/player/${r.player_id}?season=${season}">${esc(r.full_name)}</a></td>
-            <td class="l">${teamLink(r.team_abbr, season)}</td>
-            <td>${r.gp}</td><td>${fmt(r.min)}</td><td>${fmt(r.pts)}</td><td>${fmt(r.reb)}</td><td>${fmt(r.ast)}</td>
-            <td>${fmt(r.ts_pct, "pct")}</td>
-            <td><strong>${fmt(r.value, m.fmt)}</strong></td>
+            <td class="l">${teamLink(r.team_abbr, season, true)}</td>
+            ${cols.map(([k, , f]) => `<td${k === stat ? ` class="sorted"` : PHONE_HIDDEN.has(k) ? ` class="hide-sm"` : ""}>${fmt(r[k], f)}</td>`).join("")}
             <td>${r.percentile == null ? "" : `<span class="chip" style="background:${pctColor(r.percentile)}">${r.percentile}</span>`}</td>
           </tr>`).join("")}
         </tbody>
@@ -116,8 +125,10 @@ async function renderLeaderboard(params) {
 
 // ------------------------------------------------------------------ team page
 
-const teamLink = (abbr, season) => abbr
-  ? `<a class="team-link" href="#/team/${encodeURIComponent(abbr)}${season ? `?season=${season}` : ""}">${esc(abbr)}</a>` : "";
+// Link to a team page; dot=true adds a small team-color dot before the abbreviation.
+const teamDot = (abbr) => `<span class="team-dot" style="background:${teamColor(abbr)}" aria-hidden="true"></span>`;
+const teamLink = (abbr, season, dot = false) => abbr
+  ? `<a class="team-link" href="#/team/${encodeURIComponent(abbr)}${season ? `?season=${season}` : ""}">${dot ? teamDot(abbr) : ""}${esc(abbr)}</a>` : "";
 
 async function renderTeam(abbr, season) {
   const d = await api(`/api/teams/${encodeURIComponent(abbr)}${season ? `?season=${season}` : ""}`);
@@ -132,7 +143,7 @@ async function renderTeam(abbr, season) {
       </div>
       <select id="season">${d.seasons.map((x) => `<option ${x === d.season ? "selected" : ""}>${x}</option>`).join("")}</select>
     </section>
-    <div class="card table-wrap">
+    <div class="table-wrap">
       <table>
         <thead><tr><th class="l">Player</th><th class="l">Pos</th>${th("gp", "GP")}${th("min", "MIN")}${th("pts", "PTS")}${th("reb", "REB")}${th("ast", "AST")}${th("ts_pct", "TS%")}<th class="l">${tip("percentile", "Top percentiles")}</th></tr></thead>
         <tbody>${d.roster.map((r) => `
@@ -152,19 +163,49 @@ async function renderTeam(abbr, season) {
 // ------------------------------------------------------------------ player page
 
 // Name, bio, tags, season picker and the tab row, shared by all three tabs.
+// [primary, secondary] per team. Primary: the player band and team dots;
+// each passes 4.5:1 with white text (Portland's red darkened slightly).
+// Secondary: the band's bottom stripe; each is at least 3:1 against both ends
+// of the band's gradient. Where the official secondary wasn't (e.g. 76ers red
+// on blue), it's the team's silver/gray or white instead.
+const TEAM_COLORS = {
+  ATL: ["#C8102E", "#FDB927"], BOS: ["#007A33", "#FFFFFF"], BKN: ["#000000", "#FFFFFF"], CHA: ["#1D1160", "#00788C"],
+  CHI: ["#CE1141", "#FFFFFF"], CLE: ["#860038", "#FDBB30"], DAL: ["#00538C", "#B8C4CA"], DEN: ["#0E2240", "#FEC524"],
+  DET: ["#C8102E", "#BEC0C2"], GSW: ["#1D428A", "#FFC72C"], HOU: ["#CE1141", "#C4CED4"], IND: ["#002D62", "#FDBB30"],
+  LAC: ["#1D428A", "#BEC0C2"], LAL: ["#552583", "#FDB927"], MEM: ["#5D76A9", "#FFFFFF"], MIA: ["#98002E", "#F9A01B"],
+  MIL: ["#00471B", "#EEE1C6"], MIN: ["#0C2340", "#78BE20"], NOP: ["#0C2340", "#B4975A"], NYK: ["#006BB6", "#BEC0C2"],
+  OKC: ["#007AC1", "#FFFFFF"], ORL: ["#0077C0", "#FFFFFF"], PHI: ["#006BB6", "#C4CED4"], PHX: ["#1D1160", "#E56020"],
+  POR: ["#D7383C", "#FFFFFF"], SAC: ["#5A2D81", "#FFFFFF"], SAS: ["#000000", "#C4CED4"], TOR: ["#CE1141", "#FFFFFF"],
+  UTA: ["#002B5C", "#F9A01B"], WAS: ["#002B5C", "#C4CED4"],
+};
+const teamColor = (abbr) => TEAM_COLORS[abbr]?.[0] || "#0f2340"; // free agents: site navy
+const teamColor2 = (abbr) => TEAM_COLORS[abbr]?.[1] || "#e8572a"; //   ...and the site accent
+
+// Full-width band above the page (team color, name, bio, 4 headline stats,
+// status pills, season picker), written into #band. Returns the tab row,
+// which goes at the top of the page body.
 function playerHead(d, tab, vsId) {
   const p = d.player, s = d.stats;
+  const abbr = s.team_abbr || p.team_abbr;
   const link = (t) => `#/player/${p.player_id}?season=${d.season}${t === "overview" ? "" : `&tab=${t}`}${vsId ? `&vs=${vsId}` : ""}`;
-  return `
-    <section class="player-head">
-      <div>
-        <h1>${esc(p.full_name)}</h1>
-        <div class="bio">${[teamLink(s.team_abbr || p.team_abbr, d.season), ...[p.position, p.height, p.weight && p.weight + " lb", s.age && "Age " + s.age].filter(Boolean).map(esc)].filter(Boolean).join(" · ")}</div>
+  const headline = [["pts", "PTS"], ["reb", "REB"], ["ast", "AST"], ["ts_pct", "TS%", "pct"]];
+  $("#band").innerHTML = `
+    <section class="band" style="--team:${teamColor(abbr)};--team2:${teamColor2(abbr)}" aria-label="${esc(p.full_name)}">
+      <div class="band-inner">
+        <div class="band-main">
+          <h1>${esc(p.full_name)}</h1>
+          <div class="bio">${[teamLink(abbr, d.season), ...[p.position, p.height, p.weight && p.weight + " lb", s.age && "Age " + s.age].filter(Boolean).map(esc)].filter(Boolean).join(" · ")}</div>
+          <div class="pills">${d.qualified ? `<span class="pill">Qualified · ranked vs ${d.pool_size} players</span>` : `<span class="pill">Not qualified · percentiles vs ${d.pool_size} qualified players</span>`}
+            ${d.early_season ? `<span class="pill early" title="Percentiles settle down as the season goes on.">Early season · league leader has ${d.league_max_gp} GP</span>` : ""}</div>
+        </div>
+        <dl class="headline" aria-label="${d.season} per game">
+          ${headline.map(([k, l, f]) => `<div><dt>${tip(k, l)}</dt><dd>${fmt(s[k], f)}</dd></div>`).join("")}
+        </dl>
+        <label class="band-season"><span>Season</span>
+          <select id="season">${d.seasons.map((x) => `<option ${x === d.season ? "selected" : ""}>${x}</option>`).join("")}</select></label>
       </div>
-      <div class="tags">${d.qualified ? `<span class="tag">Qualified · ranked vs ${d.pool_size} players</span>` : `<span class="tag warn">Not qualified · percentiles vs ${d.pool_size} qualified players</span>`}
-        ${d.early_season ? `<span class="tag early" title="Percentiles settle down as the season goes on.">Early season · league leader has ${d.league_max_gp} GP, so expect big swings</span>` : ""}</div>
-      <select id="season" aria-label="Season">${d.seasons.map((x) => `<option ${x === d.season ? "selected" : ""}>${x}</option>`).join("")}</select>
-    </section>
+    </section>`;
+  return `
     <nav class="tabs" aria-label="Player sections">
       ${[["overview", "Overview"], ["games", "Game Log"], ["career", "Career"]].map(([t, label]) =>
         `<a href="${link(t)}" class="${t === tab ? "on" : ""}" ${t === tab ? 'aria-current="page"' : ""}>${label}</a>`).join("")}
@@ -246,7 +287,7 @@ async function renderPlayer(id, season, vs, tab) {
       </section>
     </div>
 
-    <section class="card" style="margin-top:20px">
+    <section class="section">
       <h2>Season Stats (Per Game)</h2>
       <div class="table-wrap"><table>
         <thead><tr><th>Season</th><th class="l">Team</th>${[["gp", "GP"], ["min", "MIN"], ["pts", "PTS"], ["reb", "REB"], ["ast", "AST"], ["stl", "STL"], ["blk", "BLK"], ["tov", "TOV"], ["fg_pct", "FG%"], ["fg3_pct", "3P%"], ["ft_pct", "FT%"], ["ts_pct", "TS%"]].map(([k, l]) => th(k, l)).join("")}</tr></thead>
@@ -257,13 +298,22 @@ async function renderPlayer(id, season, vs, tab) {
       </table></div>
     </section>
 
-    <section class="card" style="margin-top:20px">
+    <section class="section">
       <h2>${tip("similar", `Similar Players · ${d.season}`)}</h2>
-      ${d.similar.length ? `<ol class="similar">${d.similar.map((x) => `
-        <li><a href="#/player/${x.player_id}?season=${d.season}">${esc(x.full_name)}</a>
-          <span class="meta">${esc([x.team_abbr, x.position].filter(Boolean).join(" · "))}</span>
-          <a class="cmp-link" href="${here(`&vs=${x.player_id}`)}" title="Overlay ${esc(x.full_name)} on the percentile bars">compare</a>
-          <span class="score" title="Cosine similarity of percentile profiles (100 = identical)">${Math.round(x.score * 100)}</span></li>`).join("")}</ol>`
+      ${d.similar.length ? `<ol class="sim-tiles">${d.similar.map((x) => {
+        const score = Math.max(0, Math.round(x.score * 100));
+        return `<li class="sim">
+          <div class="sim-who">
+            <a class="sim-name" href="#/player/${x.player_id}?season=${d.season}">${esc(x.full_name)}</a>
+            <span class="sim-team">${teamLink(x.team_abbr, d.season, true)}${x.position ? ` · ${esc(x.position)}` : ""}</span>
+          </div>
+          <div class="sim-score" title="Similarity of percentile profiles (100 = identical)">
+            <span class="sim-num">${score}</span>
+            <span class="sim-bar" aria-hidden="true"><span style="width:${score}%"></span></span>
+          </div>
+          <a class="btn" href="${here(`&vs=${x.player_id}`)}" aria-label="Compare with ${esc(x.full_name)}">Compare</a>
+        </li>`;
+      }).join("")}</ol>`
       : `<p class="muted">${d.qualified ? "Not computed yet: runs with the next data update." : "Only computed for qualified players."}</p>`}
     </section>`;
 
@@ -346,7 +396,7 @@ function shotTitle(s) {
 // Player FG% by zone vs the full-season league FG% from that zone.
 function zoneTable(zones) {
   if (!zones.length) return `<p class="muted">No shots match these filters.</p>`;
-  return `<table>
+  return `<div class="table-wrap"><table>
     <thead><tr><th class="l">Zone</th><th>FGA</th><th>FGM</th><th>FG%</th>${th("zone_league", "League")}${th("zone_diff", "+/-")}</tr></thead>
     <tbody>${zones.map((z) => {
       const diff = z.league_fg_pct == null ? null : z.fg_pct - z.league_fg_pct;
@@ -354,7 +404,7 @@ function zoneTable(zones) {
         <td class="muted">${fmt(z.league_fg_pct, "pct")}</td>
         <td style="color:${diffColor(diff)};font-weight:700">${diff == null ? "—" : (diff >= 0 ? "+" : "") + (diff * 100).toFixed(1)}</td></tr>`;
     }).join("")}</tbody>
-  </table>
+  </table></div>
   ${zones.some((z) => z.no_league_avg) ? `<p class="note">— Backcourt has no league average: NBA.com's official FGA leaves out most missed end-of-quarter heaves, so the few that remain are mostly makes.</p>` : ""}`;
 }
 
@@ -486,7 +536,7 @@ async function renderGameLog(d, vsId) {
           <div class="chart-wrap" id="trend-${i}">${trendChart(games, m, win)}<div class="chart-tip" role="status" hidden></div></div>
         </section>`).join("")}
     </div>
-    <section class="card" style="margin-top:20px">
+    <section class="section">
       <h2>${d.season} Game Log · ${games.length} games</h2>
       <div class="table-wrap"><table>
         <thead><tr><th class="l">Date</th><th class="l">Opp</th><th class="l">Result</th>${[["min", "MIN"], ["pts", "PTS"], ["reb", "REB"], ["ast", "AST"], ["stl", "STL"], ["blk", "BLK"], ["tov", "TOV"]].map(([k, l]) => th(k, l)).join("")}<th>FG</th><th>3P</th><th>FT</th>${th("ts_pct", "TS%")}<th>+/-</th></tr></thead>
@@ -516,7 +566,7 @@ async function renderCareer(d, vsId) {
   const anyLow = c.metrics.some((m) => m.cells.some((x) => x.low_sample));
   app.innerHTML = `
     ${playerHead(d, "career", vsId)}
-    <section class="card">
+    <section class="section first">
       <h2>Percentiles by Season</h2>
       <p class="note" style="margin:-6px 0 12px">Each season is ranked against that season's qualified players.</p>
       <div class="table-wrap"><table class="career">
@@ -623,18 +673,30 @@ function autocomplete(input, list, { href, accept = () => true, empty = "No play
 }
 
 function setupSearch() {
-  const input = $("#search");
+  const input = $("#search"), box = input.closest(".search"), toggle = box.querySelector(".search-toggle");
   autocomplete(input, $("#search-results"), {
     href: (x) => x.kind === "team" ? `#/team/${encodeURIComponent(x.abbr)}` : `#/player/${x.player_id}`,
   });
+  // Phones: the search is an icon that expands over the top bar. (On wider
+  // screens the toggle is hidden and the "open" class does nothing.)
+  const setOpen = (open) => {
+    box.classList.toggle("open", open);
+    toggle.setAttribute("aria-expanded", open);
+    toggle.setAttribute("aria-label", open ? "Close search" : "Search players or teams");
+    if (open) input.focus();
+  };
+  toggle.addEventListener("click", () => setOpen(!box.classList.contains("open")));
+  input.addEventListener("keydown", (e) => { if (e.key === "Escape" && box.classList.contains("open")) { setOpen(false); toggle.focus(); } });
+  window.addEventListener("hashchange", () => setOpen(false)); // picked a result
   // One listener for every dropdown (header and compare picker): a click
   // outside a dropdown's own box closes it.
   document.addEventListener("click", (e) => {
     document.querySelectorAll(".search-results").forEach((l) => { if (!l.parentElement.contains(e.target)) l.hidden = true; });
+    if (!box.contains(e.target) && !input.value) setOpen(false);
   });
   // "/" jumps to search from anywhere except a text field
   document.addEventListener("keydown", (e) => {
-    if (e.key === "/" && !e.target.closest("input, select, textarea")) { e.preventDefault(); input.focus(); }
+    if (e.key === "/" && !e.target.closest("input, select, textarea")) { e.preventDefault(); setOpen(true); input.focus(); }
   });
 }
 
