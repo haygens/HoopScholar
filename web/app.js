@@ -2,6 +2,7 @@
 //   #/                                leaderboards
 //   #/?stat=ts_pct&season=2025-26     leaderboard with options
 //   #/player/203999?season=2025-26    player page
+//   #/team/LAL?season=2025-26        team page (roster + top percentiles)
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const app = $("#app");
@@ -57,6 +58,7 @@ async function route() {
   window.scrollTo(0, 0);
   try {
     if (parts[0] === "player" && parts[1]) await renderPlayer(+parts[1], params.get("season"));
+    else if (parts[0] === "team" && parts[1]) await renderTeam(parts[1], params.get("season"));
     else await renderLeaderboard(params);
   } catch (e) {
     app.innerHTML = `<div class="card"><h2>Something went wrong</h2><p>${esc(e.message)}</p></div>`;
@@ -92,7 +94,7 @@ async function renderLeaderboard(params) {
           <tr>
             <td>${r.rank}</td>
             <td class="l"><a href="#/player/${r.player_id}?season=${season}">${esc(r.full_name)}</a></td>
-            <td class="l">${esc(r.team_abbr)}</td>
+            <td class="l">${teamLink(r.team_abbr, season)}</td>
             <td>${r.gp}</td><td>${fmt(r.min)}</td><td>${fmt(r.pts)}</td><td>${fmt(r.reb)}</td><td>${fmt(r.ast)}</td>
             <td>${fmt(r.ts_pct, "pct")}</td>
             <td><strong>${fmt(r.value, m.fmt)}</strong></td>
@@ -111,6 +113,41 @@ async function renderLeaderboard(params) {
   ["#lb-stat", "#lb-season", "#lb-q"].forEach((s) => $(s).addEventListener("change", go));
 }
 
+// ------------------------------------------------------------------ team page
+
+const teamLink = (abbr, season) => abbr
+  ? `<a class="team-link" href="#/team/${encodeURIComponent(abbr)}${season ? `?season=${season}` : ""}">${esc(abbr)}</a>` : "";
+
+async function renderTeam(abbr, season) {
+  const d = await api(`/api/teams/${encodeURIComponent(abbr)}${season ? `?season=${season}` : ""}`);
+  document.title = `${d.team.name} · HoopScholar`;
+  const chip = (t) => `<span class="trait"><span class="chip" style="background:${pctColor(t.percentile)}">${t.percentile}</span>${tip(t.key, t.label)}</span>`;
+
+  app.innerHTML = `
+    <section class="player-head">
+      <div>
+        <h1>${esc(d.team.name)}</h1>
+        <div class="bio">${d.roster.length} players with stats in ${d.season} · sorted by minutes</div>
+      </div>
+      <select id="season">${d.seasons.map((x) => `<option ${x === d.season ? "selected" : ""}>${x}</option>`).join("")}</select>
+    </section>
+    <div class="card table-wrap">
+      <table>
+        <thead><tr><th class="l">Player</th><th class="l">Pos</th>${th("gp", "GP")}${th("min", "MIN")}${th("pts", "PTS")}${th("reb", "REB")}${th("ast", "AST")}${th("ts_pct", "TS%")}<th class="l">${tip("percentile", "Top percentiles")}</th></tr></thead>
+        <tbody>${d.roster.map((r) => `
+          <tr class="${r.qualified ? "" : "nq"}">
+            <td class="l"><a href="#/player/${r.player_id}?season=${d.season}">${esc(r.full_name)}</a>${r.qualified ? "" : ` <span class="badge" title="Percentiles are vs qualified players">not qualified</span>`}</td>
+            <td class="l">${esc(r.position)}</td>
+            <td>${r.gp}</td><td>${fmt(r.min)}</td><td>${fmt(r.pts)}</td><td>${fmt(r.reb)}</td><td>${fmt(r.ast)}</td>
+            <td>${fmt(r.ts_pct, "pct")}</td>
+            <td class="l"><div class="traits">${r.top.map(chip).join("") || `<span class="muted">—</span>`}</div></td>
+          </tr>`).join("")}
+        </tbody>
+      </table>
+    </div>`;
+  $("#season").addEventListener("change", (e) => (location.hash = `#/team/${encodeURIComponent(d.team.abbr)}?season=${e.target.value}`));
+}
+
 // ------------------------------------------------------------------ player page
 
 async function renderPlayer(id, season) {
@@ -127,7 +164,7 @@ async function renderPlayer(id, season) {
     <section class="player-head">
       <div>
         <h1>${esc(p.full_name)}</h1>
-        <div class="bio">${[s.team_abbr || p.team_abbr, p.position, p.height, p.weight && p.weight + " lb", s.age && "Age " + s.age].filter(Boolean).map(esc).join(" · ")}</div>
+        <div class="bio">${[teamLink(s.team_abbr || p.team_abbr, d.season), ...[p.position, p.height, p.weight && p.weight + " lb", s.age && "Age " + s.age].filter(Boolean).map(esc)].filter(Boolean).join(" · ")}</div>
       </div>
       <div class="tags">${d.qualified ? `<span class="tag">Qualified · ranked vs ${d.pool_size} players</span>` : `<span class="tag warn">Not qualified · percentiles vs ${d.pool_size} qualified players</span>`}
         ${d.early_season ? `<span class="tag early" title="Percentiles settle down as the season goes on.">Early season · league leader has ${d.league_max_gp} GP, so expect big swings</span>` : ""}</div>
@@ -272,29 +309,40 @@ function shotChart(data, state) {
 
 function setupSearch() {
   const input = $("#search"), list = $("#search-results");
-  let timer, items = [], active = -1;
+  let timer, items = [], active = -1, seq = 0;
   const close = () => { list.hidden = true; active = -1; };
+  const href = (x) => x.kind === "team" ? `#/team/${encodeURIComponent(x.abbr)}` : `#/player/${x.player_id}`;
   const paint = () => {
-    list.innerHTML = items.map((p, i) => `<li><a href="#/player/${p.player_id}" class="${i === active ? "active" : ""}">
-      <span>${esc(p.full_name)}</span><span class="meta">${esc([p.team_abbr, p.position, p.last_season].filter(Boolean).join(" · "))}</span></a></li>`).join("")
-      || `<li><a class="meta">No players found</a></li>`;
+    list.innerHTML = items.map((x, i) => `<li><a href="${href(x)}" class="${i === active ? "active" : ""}">
+      <span>${esc(x.kind === "team" ? x.name : x.full_name)}</span><span class="meta">${esc(x.kind === "team"
+        ? "Team"
+        : [x.team_abbr, x.position, x.last_season].filter(Boolean).join(" · "))}</span></a></li>`).join("")
+      || `<li><a class="meta">No players or teams found</a></li>`;
     list.hidden = false;
   };
   input.addEventListener("input", () => {
     clearTimeout(timer);
     const q = input.value.trim();
     if (!q) return close();
-    timer = setTimeout(async () => { items = await api(`/api/search?q=${encodeURIComponent(q)}`); active = -1; paint(); }, 150);
+    const mine = ++seq; // ignore a slow reply to an older query
+    timer = setTimeout(async () => {
+      const res = await api(`/api/search?q=${encodeURIComponent(q)}`);
+      if (mine === seq) { items = res; active = -1; paint(); }
+    }, 150);
   });
   input.addEventListener("keydown", (e) => {
     if (list.hidden || !items.length) return;
     if (e.key === "ArrowDown") { active = (active + 1) % items.length; paint(); e.preventDefault(); }
     if (e.key === "ArrowUp") { active = (active - 1 + items.length) % items.length; paint(); e.preventDefault(); }
-    if (e.key === "Enter") { location.hash = `#/player/${items[Math.max(0, active)].player_id}`; input.value = ""; close(); }
+    if (e.key === "Enter") { location.hash = href(items[Math.max(0, active)]); input.value = ""; close(); input.blur(); }
     if (e.key === "Escape") close();
   });
   list.addEventListener("click", () => { input.value = ""; close(); });
   document.addEventListener("click", (e) => { if (!e.target.closest(".search")) close(); });
+  // "/" jumps to search from anywhere except a text field
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "/" && !e.target.closest("input, select, textarea")) { e.preventDefault(); input.focus(); }
+  });
 }
 
 // ------------------------------------------------------------------ tooltips

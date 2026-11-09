@@ -98,5 +98,16 @@ def test_every_stat_has_a_tooltip():
     assert not [k for k in keys if not metrics.GLOSSARY.get(k)]
 
 
+
+def test_top_percentiles_skips_low_sample_zones():
+    import pandas as pd
+    row = pd.Series({"pts": 20.0, "ast": 5.0, "stl": 1.0, "corner3_pct": 1.0, "corner3_fga": 3})
+    prow = pd.Series({"pts": 80.0, "ast": 60.0, "stl": 60.0, "corner3_pct": 100.0})
+    top = metrics.top_percentiles(row, prow)
+    assert [t["key"] for t in top] == ["pts", "ast", "stl"]  # 3-attempt corner 3 left out; ties keep slider order
+    row["corner3_fga"] = 40
+    assert metrics.top_percentiles(row, prow)[0]["key"] == "corner3_pct"
+
+
 if __name__ == "__main__":
     test_backfill_then_nightly()

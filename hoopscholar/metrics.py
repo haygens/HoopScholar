@@ -230,6 +230,25 @@ def percentiles(frame: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def top_percentiles(row: pd.Series, prow: pd.Series, n: int = 3) -> list[dict]:
+    """A player's n best slider percentiles (row from season_frame, prow from
+    percentiles()). Zone stats under ZONE_MIN_FGA attempts are skipped so a
+    3-for-3 corner shooter's '100' isn't billed as a strength. Ties keep
+    METRICS order."""
+    found = []
+    for m in METRICS:
+        p = prow.get(m.key)
+        if p is None or pd.isna(p):
+            continue
+        if m.sample_col:
+            attempts = row.get(m.sample_col)
+            if attempts is None or pd.isna(attempts) or attempts < config.ZONE_MIN_FGA:
+                continue
+        found.append({"key": m.key, "label": m.label, "fmt": m.fmt,
+                      "value": float(row[m.key]), "percentile": int(p)})
+    return sorted(found, key=lambda x: -x["percentile"])[:n]
+
+
 # ---------------------------------------------------------------- hex bins
 
 HEX_R = 20.0  # 2 ft hexagons

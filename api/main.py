@@ -121,14 +121,50 @@ def meta():
 
 @app.get("/api/search")
 def search(q: str = Query(..., min_length=1), limit: int = 10):
-    rows = conn().execute("""
-        SELECT p.player_id, p.full_name, p.team_abbr, p.position,
-               (SELECT MAX(season) FROM player_season_stats s WHERE s.player_id = p.player_id) AS last_season
-        FROM players p
-        WHERE p.full_name LIKE ? OR p.last_name LIKE ?
-        ORDER BY (p.full_name LIKE ?) DESC, last_season DESC, p.full_name
-        LIMIT ?""", (f"%{q}%", f"{q}%", f"{q}%", limit)).fetchall()
-    return [dict(r) for r in rows if r["last_season"]]
+    """Teams (by abbreviation or name) first, then players with stats."""
+    c = conn()
+    teams = [{"kind": "team", **dict(r)} for r in c.execute("""
+        SELECT abbr, name FROM teams
+        WHERE abbr LIKE ? OR name LIKE ?
+        ORDER BY (abbr LIKE ?) DESC, name LIMIT 3""", (f"{q}%", f"%{q}%", q))]
+    players = [{"kind": "player", **dict(r)} for r in c.execute("""
+        SELECT * FROM (
+            SELECT p.player_id, p.full_name, p.team_abbr, p.position,
+                   (SELECT MAX(season) FROM player_season_stats s WHERE s.player_id = p.player_id) AS last_season
+            FROM players p
+            WHERE p.full_name LIKE ? OR p.last_name LIKE ?)
+        WHERE last_season IS NOT NULL
+        ORDER BY (full_name LIKE ?) DESC, last_season DESC, full_name
+        LIMIT ?""", (f"%{q}%", f"{q}%", f"{q}%", limit))]
+    return (teams + players)[:limit]
+
+
+@app.get("/api/teams/{abbr}")
+def team(abbr: str, season: str | None = None):
+    """Roster for one team-season: everyone whose season stat line is with this
+    team, by minutes, with each player's top 3 percentiles."""
+    c = conn()
+    t = c.execute("SELECT team_id, abbr, name FROM teams WHERE abbr = ? COLLATE NOCASE", (abbr,)).fetchone()
+    if not t:
+        raise HTTPException(404, "Team not found")
+    team_seasons = [r[0] for r in c.execute(
+        "SELECT DISTINCT season FROM player_season_stats WHERE team_abbr = ? ORDER BY season DESC", (t["abbr"],))]
+    if not team_seasons:
+        raise HTTPException(404, "No stats for this team")
+    season = season if season in team_seasons else team_seasons[0]
+
+    frame, pcts = season_data(season)
+    roster = frame[frame["team_abbr"] == t["abbr"]].sort_values("min", ascending=False)
+    pidx = pcts.set_index("player_id")
+    rows = []
+    for _, r in roster.iterrows():
+        rows.append({
+            **{k: clean(r.get(k)) for k in ("player_id", "full_name", "position", "gp", "min",
+                                             "pts", "reb", "ast", "ts_pct")},
+            "qualified": bool(r["qualified"]),
+            "top": metrics.top_percentiles(r, pidx.loc[r["player_id"]]),
+        })
+    return {"team": dict(t), "season": season, "seasons": team_seasons, "roster": rows}
 
 
 @app.get("/api/leaderboard")

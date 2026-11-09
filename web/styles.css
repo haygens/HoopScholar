@@ -113,3 +113,10 @@ td a:hover { text-decoration: underline; }
   box-shadow: 0 4px 14px rgba(0,0,0,.18); pointer-events: none; }
 .tags { display: flex; flex-wrap: wrap; gap: 6px; }
 .tag.early { background: #fdf0d5; color: #8a5a00; }
+
+/* ---------- team page */
+.team-link { color: inherit; font-weight: 600; }
+.traits { display: flex; flex-wrap: wrap; gap: 4px 12px; white-space: normal; min-width: 260px; }
+.trait { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; }
+.trait .chip { min-width: 26px; padding: 1px 5px; font-size: 11px; }
+tr.nq td { color: var(--muted); }

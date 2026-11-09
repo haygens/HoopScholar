@@ -117,7 +117,8 @@ lists only the libraries the website needs; `requirements.txt` stays the full lo
 | Endpoint | What |
 |---|---|
 | `GET /api/meta` | seasons, metric definitions, data source, last update |
-| `GET /api/search?q=jok` | player search |
+| `GET /api/search?q=jok` | player and team search (teams first) |
+| `GET /api/teams/LAL?season=` | team roster by minutes, each player's top 3 percentiles |
 | `GET /api/leaderboard?stat=ts_pct&season=2025-26&qualified=true&limit=50` | sorted leaderboard |
 | `GET /api/players/{id}?season=` | bio, season stats, percentile sliders, zone splits, career |
 | `GET /api/players/{id}/shots?season=` | every shot + hex bins vs league |
