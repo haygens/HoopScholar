@@ -230,7 +230,7 @@ td, th, .val, .vs-val, .chip, .track .dot, .score, .cv, .filters select, .chart-
 
 /* ---------- player band: full width, team color, white text throughout */
 #band:empty { display: none; }
-.band { color: #fff; background: var(--team);
+.band { color: #fff; background: var(--team); border-bottom: 4px solid var(--team2); /* secondary-color accent stripe */
   background: linear-gradient(105deg, var(--team) 0%, var(--team) 45%, color-mix(in srgb, var(--team) 70%, #000) 100%); }
 .band-inner { max-width: 1180px; margin: 0 auto; padding: 22px 24px 20px;
   display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "main season" "main stats"; gap: 12px 32px; }
@@ -244,7 +244,9 @@ td, th, .val, .vs-val, .chip, .track .dot, .score, .cv, .filters select, .chart-
 .band .pill.early { background: #fdf0d5; color: #6a4b00; border-color: #fdf0d5; }
 .band .headline { grid-area: stats; align-self: end; display: flex; gap: 28px; margin: 0; }
 .band .headline div { display: flex; flex-direction: column-reverse; align-items: flex-start; }
-.band .headline dd { margin: 0; font-family: var(--display); font-weight: 700; font-size: 38px; line-height: 1; font-variant-numeric: tabular-nums; }
+/* Headline numbers: heavier and with a soft shadow so they stand off the gradient */
+.band .headline dd { margin: 0; font-family: var(--display); font-weight: 800; font-size: 38px; line-height: 1; font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .35); }
 .band .headline dt { font-size: 12px; font-weight: 600; letter-spacing: .06em; margin-top: 4px; }
 .band .tip:hover, .band .tip:focus-visible { text-decoration-color: #fff; }
 .band-season { grid-area: season; justify-self: end; align-self: start; display: inline-flex; align-items: center; gap: 8px; font-size: 13px; }

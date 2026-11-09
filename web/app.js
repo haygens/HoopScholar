@@ -161,16 +161,23 @@ async function renderTeam(abbr, season) {
 // ------------------------------------------------------------------ player page
 
 // Name, bio, tags, season picker and the tab row, shared by all three tabs.
-// Team primary colors for the player band and team dots. Each passes 4.5:1
-// contrast with white text (Portland's red is darkened slightly to get there).
+// [primary, secondary] per team. Primary: the player band and team dots;
+// each passes 4.5:1 with white text (Portland's red darkened slightly).
+// Secondary: the band's bottom stripe; each is at least 3:1 against both ends
+// of the band's gradient. Where the official secondary wasn't (e.g. 76ers red
+// on blue), it's the team's silver/gray or white instead.
 const TEAM_COLORS = {
-  ATL: "#C8102E", BOS: "#007A33", BKN: "#000000", CHA: "#1D1160", CHI: "#CE1141", CLE: "#860038",
-  DAL: "#00538C", DEN: "#0E2240", DET: "#C8102E", GSW: "#1D428A", HOU: "#CE1141", IND: "#002D62",
-  LAC: "#1D428A", LAL: "#552583", MEM: "#5D76A9", MIA: "#98002E", MIL: "#00471B", MIN: "#0C2340",
-  NOP: "#0C2340", NYK: "#006BB6", OKC: "#007AC1", ORL: "#0077C0", PHI: "#006BB6", PHX: "#1D1160",
-  POR: "#D7383C", SAC: "#5A2D81", SAS: "#000000", TOR: "#CE1141", UTA: "#002B5C", WAS: "#002B5C",
+  ATL: ["#C8102E", "#FDB927"], BOS: ["#007A33", "#FFFFFF"], BKN: ["#000000", "#FFFFFF"], CHA: ["#1D1160", "#00788C"],
+  CHI: ["#CE1141", "#FFFFFF"], CLE: ["#860038", "#FDBB30"], DAL: ["#00538C", "#B8C4CA"], DEN: ["#0E2240", "#FEC524"],
+  DET: ["#C8102E", "#BEC0C2"], GSW: ["#1D428A", "#FFC72C"], HOU: ["#CE1141", "#C4CED4"], IND: ["#002D62", "#FDBB30"],
+  LAC: ["#1D428A", "#BEC0C2"], LAL: ["#552583", "#FDB927"], MEM: ["#5D76A9", "#FFFFFF"], MIA: ["#98002E", "#F9A01B"],
+  MIL: ["#00471B", "#EEE1C6"], MIN: ["#0C2340", "#78BE20"], NOP: ["#0C2340", "#B4975A"], NYK: ["#006BB6", "#BEC0C2"],
+  OKC: ["#007AC1", "#FFFFFF"], ORL: ["#0077C0", "#FFFFFF"], PHI: ["#006BB6", "#C4CED4"], PHX: ["#1D1160", "#E56020"],
+  POR: ["#D7383C", "#FFFFFF"], SAC: ["#5A2D81", "#FFFFFF"], SAS: ["#000000", "#C4CED4"], TOR: ["#CE1141", "#FFFFFF"],
+  UTA: ["#002B5C", "#F9A01B"], WAS: ["#002B5C", "#C4CED4"],
 };
-const teamColor = (abbr) => TEAM_COLORS[abbr] || "#0f2340"; // free agents: site navy
+const teamColor = (abbr) => TEAM_COLORS[abbr]?.[0] || "#0f2340"; // free agents: site navy
+const teamColor2 = (abbr) => TEAM_COLORS[abbr]?.[1] || "#e8572a"; //   ...and the site accent
 
 // Full-width band above the page (team color, name, bio, 4 headline stats,
 // status pills, season picker), written into #band. Returns the tab row,
@@ -181,7 +188,7 @@ function playerHead(d, tab, vsId) {
   const link = (t) => `#/player/${p.player_id}?season=${d.season}${t === "overview" ? "" : `&tab=${t}`}${vsId ? `&vs=${vsId}` : ""}`;
   const headline = [["pts", "PTS"], ["reb", "REB"], ["ast", "AST"], ["ts_pct", "TS%", "pct"]];
   $("#band").innerHTML = `
-    <section class="band" style="--team:${teamColor(abbr)}" aria-label="${esc(p.full_name)}">
+    <section class="band" style="--team:${teamColor(abbr)};--team2:${teamColor2(abbr)}" aria-label="${esc(p.full_name)}">
       <div class="band-inner">
         <div class="band-main">
           <h1>${esc(p.full_name)}</h1>
