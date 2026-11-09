@@ -26,6 +26,13 @@ function fmt(v, kind) {
   }
 }
 
+// Stat label with a tooltip from META.glossary (one dictionary, served by /api/meta).
+function tip(key, label) {
+  const text = META?.glossary?.[key];
+  return text ? `<span class="tip" tabindex="0" data-tip="${esc(text)}">${esc(label)}</span>` : esc(label);
+}
+const th = (key, label, cls = "") => `<th${cls ? ` class="${cls}"` : ""}>${tip(key, label)}</th>`;
+
 // Savant palette: blue (0) -> grey (50) -> red (100)
 const BLUE = [54, 97, 173], GREY = [200, 200, 200], RED = [216, 34, 31];
 function mix(a, b, t) { return a.map((x, i) => Math.round(x + (b[i] - x) * t)); }
@@ -80,7 +87,7 @@ async function renderLeaderboard(params) {
     </div>
     <div class="card table-wrap">
       <table>
-        <thead><tr><th>#</th><th class="l">Player</th><th class="l">Team</th><th>GP</th><th>MIN</th><th>PTS</th><th>REB</th><th>AST</th><th>TS%</th><th>${esc(m.label)}</th><th>Pctl</th></tr></thead>
+        <thead><tr><th>#</th><th class="l">Player</th><th class="l">Team</th>${th("gp", "GP")}${th("min", "MIN")}${th("pts", "PTS")}${th("reb", "REB")}${th("ast", "AST")}${th("ts_pct", "TS%")}${th(stat, m.label)}${th("percentile", "Pctl")}</tr></thead>
         <tbody>${data.rows.map((r) => `
           <tr>
             <td>${r.rank}</td>
@@ -146,7 +153,7 @@ async function renderPlayer(id, season) {
 
         <h2 style="margin-top:22px">Shot Zones</h2>
         <table>
-          <thead><tr><th class="l">Zone</th><th>FGA</th><th>FGM</th><th>FG%</th><th>League</th><th>+/-</th></tr></thead>
+          <thead><tr><th class="l">Zone</th><th>FGA</th><th>FGM</th><th>FG%</th>${th("zone_league", "League")}${th("zone_diff", "+/-")}</tr></thead>
           <tbody>${d.zones.map((z) => {
             const diff = z.league_fg_pct == null ? null : z.fg_pct - z.league_fg_pct;
             return `<tr><td class="l">${esc(z.zone_basic)}</td><td>${z.fga}</td><td>${z.fgm}</td><td>${fmt(z.fg_pct, "pct")}</td>
@@ -161,7 +168,7 @@ async function renderPlayer(id, season) {
     <section class="card" style="margin-top:20px">
       <h2>Season Stats (Per Game)</h2>
       <div class="table-wrap"><table>
-        <thead><tr><th>Season</th><th class="l">Team</th><th>GP</th><th>MIN</th><th>PTS</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>TOV</th><th>FG%</th><th>3P%</th><th>FT%</th><th>TS%</th></tr></thead>
+        <thead><tr><th>Season</th><th class="l">Team</th>${[["gp", "GP"], ["min", "MIN"], ["pts", "PTS"], ["reb", "REB"], ["ast", "AST"], ["stl", "STL"], ["blk", "BLK"], ["tov", "TOV"], ["fg_pct", "FG%"], ["fg3_pct", "3P%"], ["ft_pct", "FT%"], ["ts_pct", "TS%"]].map(([k, l]) => th(k, l)).join("")}</tr></thead>
         <tbody>${d.career.map((c) => `<tr><td>${c.season}</td><td class="l">${esc(c.team_abbr)}</td><td>${c.gp}</td>
           ${["min", "pts", "reb", "ast", "stl", "blk", "tov"].map((k) => `<td>${fmt(c[k])}</td>`).join("")}
           ${["fg_pct", "fg3_pct", "ft_pct", "ts_pct"].map((k) => `<td>${fmt(c[k], "pct")}</td>`).join("")}</tr>`).join("")}
@@ -196,7 +203,7 @@ function slider(x) {
   const c = pctColor(x.percentile);
   return `
     <div class="prow ${has ? "" : "na"}">
-      <div class="label">${esc(x.label)}${x.low_sample ? ` <span class="badge" title="Only ${x.sample} attempts (under ${META.zone_min_fga}); treat this percentile as noisy">low sample</span>` : ""}</div>
+      <div class="label">${tip(x.key, x.label)}${x.low_sample ? ` <span class="badge" title="Only ${x.sample} attempts (under ${META.zone_min_fga}); treat this percentile as noisy">low sample</span>` : ""}</div>
       <div class="track">
         <div class="mid"></div>
         ${has ? `<div class="fill" style="width:${p}%;background:${c}"></div>
@@ -289,10 +296,34 @@ function setupSearch() {
   document.addEventListener("click", (e) => { if (!e.target.closest(".search")) close(); });
 }
 
+// ------------------------------------------------------------------ tooltips
+// One floating box positioned on screen, so scrolling tables can't clip it.
+// Shows on hover, keyboard focus, and tap (tap focuses the label).
+
+function setupTooltips() {
+  const box = document.createElement("div");
+  box.className = "tooltip"; box.setAttribute("role", "tooltip"); box.hidden = true;
+  document.body.append(box);
+  const show = (el) => {
+    box.textContent = el.dataset.tip; box.hidden = false;
+    const r = el.getBoundingClientRect(), w = box.offsetWidth, h = box.offsetHeight;
+    const x = Math.min(Math.max(8, r.left + r.width / 2 - w / 2), innerWidth - w - 8);
+    const y = r.top - h - 8 >= 8 ? r.top - h - 8 : r.bottom + 8;
+    box.style.left = `${x}px`; box.style.top = `${y}px`;
+  };
+  const hide = () => { box.hidden = true; };
+  document.addEventListener("mouseover", (e) => { const el = e.target.closest("[data-tip]"); el ? show(el) : hide(); });
+  document.addEventListener("focusin", (e) => { const el = e.target.closest("[data-tip]"); if (el) show(el); });
+  document.addEventListener("focusout", hide);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") hide(); });
+  addEventListener("scroll", hide, true);
+}
+
 // ------------------------------------------------------------------ boot
 
 (async function init() {
   setupSearch();
+  setupTooltips();
   try {
     META = await api("/api/meta");
   } catch (e) {

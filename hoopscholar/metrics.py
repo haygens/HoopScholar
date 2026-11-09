@@ -55,6 +55,44 @@ LEADERBOARD_EXTRA = [
 ]
 SORTABLE = {m.key: m for m in METRICS + LEADERBOARD_EXTRA}
 
+# One plain-English sentence per stat, shown as a tooltip wherever the stat is
+# labeled (sliders, table headers). Keys are column names; the front end gets
+# this whole dictionary from /api/meta.
+GLOSSARY: dict[str, str] = {
+    "gp": "Games played this season.",
+    "min": "Minutes played per game.",
+    "pts": "Points scored per game.",
+    "reb": "Rebounds per game, offensive and defensive.",
+    "ast": "Assists per game: passes that lead directly to a teammate's made basket.",
+    "stl": "Steals per game.",
+    "blk": "Blocked shots per game.",
+    "tov": "Turnovers per game: possessions lost to a bad pass, a travel, an offensive foul and so on.",
+    "fga": "Field-goal attempts per game.",
+    "fg_pct": "Share of field-goal attempts that go in.",
+    "fg3_pct": "Share of three-point attempts that go in.",
+    "ft_pct": "Share of free throws that go in.",
+    "ts_pct": "True Shooting %: scoring efficiency that counts threes and free throws, points / (2 × (FGA + 0.44 × FTA)).",
+    "efg_pct": "Effective FG%: field-goal percentage with made threes counted as 1.5 makes, since they're worth 50% more.",
+    "usg_pct": "Usage %: share of the team's plays a player finishes (with a shot, free throws or a turnover) while on the floor.",
+    "ast_pct": "Assist %: share of teammates' made baskets a player assisted while on the floor.",
+    "reb_pct": "Rebound %: share of all available rebounds a player grabbed while on the floor.",
+    "tov_pct": "TOV%: turnovers per 100 plays that end in a shot, a trip to the line or a turnover, 100 × TOV / (FGA + 0.44 × FTA + TOV). Lower is better.",
+    "def_rating": "Defensive Rating: points the team allows per 100 possessions while the player is on the floor. Lower is better.",
+    "net_rating": "Net Rating: the team's point margin per 100 possessions while the player is on the floor (offensive minus defensive rating).",
+    "pie": "PIE (Player Impact Estimate): NBA.com's estimate of the share of all box-score events in a player's games (points, rebounds, assists and more) that they produced.",
+    "rim_fg_pct": "Rim FG%: shooting percentage in the restricted area, within 4 feet of the hoop.",
+    "mid_fg_pct": "Mid-Range FG%: shooting percentage on two-pointers from outside the paint.",
+    "corner3_pct": "Corner 3 %: three-point percentage from the corners, the shortest three on the floor (22 ft).",
+    "rim_rate": "Rim Rate: share of a player's field-goal attempts taken in the restricted area.",
+    "three_rate": "3PA Rate: share of a player's field-goal attempts that are threes.",
+    "avg_distance": "Average distance of a player's field-goal attempts from the hoop, in feet.",
+    "dist_miles": "Miles a player runs per game, measured by NBA.com's optical tracking cameras.",
+    "avg_speed": "Average speed while on the floor in miles per hour, from optical tracking.",
+    "zone_league": "League FG% from this zone: every made shot there divided by every attempt, across the whole league.",
+    "zone_diff": "The player's FG% from this zone minus the league's, in percentage points.",
+    "percentile": "Percentile vs qualified players: 100 is the best, 50 is average, 0 is the worst.",
+}
+
 
 # ---------------------------------------------------------------- shot profiles
 

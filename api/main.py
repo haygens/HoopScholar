@@ -115,6 +115,7 @@ def meta():
         "sortable": metric_meta(metrics.SORTABLE.values()),
         "qualification": {"gp_share": config.QUAL_GP_SHARE, "min_mpg": config.QUAL_MIN_MPG},
         "zone_min_fga": config.ZONE_MIN_FGA,
+        "glossary": metrics.GLOSSARY,
     }
 
 

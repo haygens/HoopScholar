@@ -92,5 +92,11 @@ def test_backfill_then_nightly():
     print(f"ok: backfill {n1} shots, nightly -> {n2}, {len(q)} qualified players")
 
 
+
+def test_every_stat_has_a_tooltip():
+    keys = [m.key for m in metrics.METRICS + metrics.LEADERBOARD_EXTRA]
+    assert not [k for k in keys if not metrics.GLOSSARY.get(k)]
+
+
 if __name__ == "__main__":
     test_backfill_then_nightly()
