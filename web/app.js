@@ -62,6 +62,7 @@ async function route() {
     if (parts[0] === "player" && parts[1]) await renderPlayer(+parts[1], params.get("season"), params.get("vs"), params.get("tab"));
     else if (parts[0] === "team" && parts[1]) await renderTeam(parts[1], params.get("season"));
     else await renderLeaderboard(params);
+    pinHeads();
   } catch (e) {
     $("#band").innerHTML = "";
     app.innerHTML = `<div class="card"><h2>Something went wrong</h2><p>${esc(e.message)}</p></div>`;
@@ -98,7 +99,7 @@ async function renderLeaderboard(params) {
       <span class="muted">Qualified = ${Math.round(META.qualification.gp_share * 100)}% of max games played and ${META.qualification.min_mpg}+ MPG${data.minimum ? ` · ranked only with ${data.minimum.value}+ ${esc(data.minimum.unit)} (scales with the season)` : ""}</span>
     </div>
     <div class="table-wrap lb-wrap">
-      <table class="lb">
+      <table class="lb pin-head">
         <thead><tr><th>#</th><th class="l">Player</th><th class="l">Team</th>${cols.map(([k, l]) => k === stat
           ? `<th class="sorted" aria-sort="${(m.higher_better ? "descending" : "ascending")}">${tip(k, l)}</th>`
           : th(k, l, PHONE_HIDDEN.has(k) ? "hide-sm" : "")).join("")}${th("percentile", "Pctl")}</tr></thead>
@@ -144,7 +145,7 @@ async function renderTeam(abbr, season) {
       <select id="season">${d.seasons.map((x) => `<option ${x === d.season ? "selected" : ""}>${x}</option>`).join("")}</select>
     </section>
     <div class="table-wrap">
-      <table>
+      <table class="pin-head">
         <thead><tr><th class="l">Player</th><th class="l">Pos</th>${th("gp", "GP")}${th("min", "MIN")}${th("pts", "PTS")}${th("reb", "REB")}${th("ast", "AST")}${th("ts_pct", "TS%")}<th class="l">${tip("percentile", "Top percentiles")}</th></tr></thead>
         <tbody>${d.roster.map((r) => `
           <tr class="${r.qualified ? "" : "nq"}">
@@ -700,6 +701,34 @@ function setupSearch() {
   });
 }
 
+// ------------------------------------------------------------------ pinned table headers
+// Tables with class "pin-head" keep their header row just under the sticky top
+// bar while the table scrolls past, and never past the table's last row. The
+// header is moved with a transform (see styles.css for why not position: sticky).
+
+function pinHeads() {
+  const barBottom = $(".topbar").getBoundingClientRect().bottom;
+  document.querySelectorAll("table.pin-head").forEach((t) => {
+    const head = t.tHead;
+    if (!head) return;
+    const room = t.offsetHeight - head.offsetHeight;  // can't go below the last row
+    const y = Math.max(0, Math.min(room, barBottom - t.getBoundingClientRect().top));
+    t.style.setProperty("--head-y", `${y}px`);
+    t.classList.toggle("stuck", y > 0);
+  });
+}
+
+function setupPinHeads() {
+  let queued = false;
+  const update = () => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => { queued = false; pinHeads(); });
+  };
+  addEventListener("scroll", update, { passive: true });
+  addEventListener("resize", update);
+}
+
 // ------------------------------------------------------------------ tooltips
 // One floating box positioned on screen, so scrolling tables can't clip it.
 // Shows on hover, keyboard focus, and tap (tap focuses the label).
@@ -728,6 +757,7 @@ function setupTooltips() {
 (async function init() {
   setupSearch();
   setupTooltips();
+  setupPinHeads();
   try {
     META = await api("/api/meta");
   } catch (e) {

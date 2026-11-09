@@ -265,14 +265,16 @@ table.lb th, table.lb td { padding-top: 5px; padding-bottom: 5px; }
 table.lb tbody tr:hover { background: #eaf0f7; }
 table.lb tbody tr:hover td.sorted { background: #dfe7f1; }
 table.lb .team-link { font-weight: 600; }
-/* Sticky header under the sticky top bar, on wide screens only. There the
-   table fits, so its wrapper doesn't scroll sideways; a scrolling wrapper
-   would become the header's scroll box and misplace it (narrow screens). */
-@media (min-width: 901px) {
-  .lb-wrap { overflow: visible; }
-  table.lb thead th { position: sticky; top: var(--topbar-h); z-index: 2; background: #fff; box-shadow: inset 0 -1px 0 var(--line); }
-  table.lb thead th.sorted { background: #f4f6f9; }
-}
+
+/* ---------- pinned table headers (leaderboard, team page)
+   The header rides down under the sticky top bar while its table scrolls past
+   (pinHeads() in app.js sets --head-y). Not CSS position: sticky: the table's
+   wrapper scrolls sideways (overflow-x: auto), which makes the wrapper the
+   sticky header's scroll box, so it never sticks to the page and is pushed
+   down over the rows instead. */
+table.pin-head thead th { position: relative; z-index: 2; background: #fff; transform: translateY(var(--head-y, 0px)); }
+table.pin-head thead th.sorted { background: #f4f6f9; }
+table.pin-head.stuck thead th { box-shadow: inset 0 -1px 0 var(--line); }
 
 /* =====================================================================
    Mobile
@@ -294,6 +296,8 @@ table.lb .team-link { font-weight: 600; }
   table.lb :is(th, td):nth-child(2) { position: sticky; left: var(--rank-w); z-index: 1; background: #fff; box-shadow: inset -1px 0 0 var(--line); }
   table.lb tbody tr:hover > td:is(:first-child, :nth-child(2)) { background: #eaf0f7; }
   table.career tr.grp td:first-child { background: #fff; }
+  /* Pinned header cells sit above both the header row and the pinned column */
+  table.pin-head thead th:first-child, table.lb.pin-head thead th:nth-child(2) { z-index: 3; }
 }
 
 @media (max-width: 700px) {
