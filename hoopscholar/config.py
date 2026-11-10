@@ -39,6 +39,19 @@ TS_TSA_FLOOR = int(os.environ.get("HOOP_TS_TSA_FLOOR", "30"))
 # percentiles are early-season numbers.
 EARLY_SEASON_GP = int(os.environ.get("HOOP_EARLY_SEASON_GP", "15"))
 
+# Games pool (Guess the Player, Higher or Lower): players whose total minutes
+# this season are at least this many per game their team has played.
+# 12 x 82 = 984 minutes by the end of a season; it scales with the season, so
+# the pool exists in week 2 and nobody jumps in all at once.
+GAMES_MIN_PER_TEAM_GAME = float(os.environ.get("HOOP_GAMES_MIN_PER_TEAM_GAME", "12"))
+# Guess the Player: puzzle #1 is on this date (Pacific), and an answer can't
+# repeat within this many days.
+GAMES_EPOCH = os.environ.get("HOOP_GAMES_EPOCH", "2026-11-09")
+GAMES_NO_REPEAT_DAYS = int(os.environ.get("HOOP_GAMES_NO_REPEAT_DAYS", "30"))
+# Early in a season, a week whose daily pool has fewer players than this uses
+# last season's pool instead (and shows that season's card).
+GAMES_MIN_DAILY_POOL = int(os.environ.get("HOOP_GAMES_MIN_DAILY_POOL", "100"))
+
 
 def season_for_date(d: _dt.date) -> str:
     """NBA seasons start in October: 2026-11-07 -> '2026-27'."""

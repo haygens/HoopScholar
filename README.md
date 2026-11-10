@@ -122,6 +122,23 @@ lists only the libraries the website needs; `requirements.txt` stays the full lo
   league's FG% *from that same hexagon*. Small samples are pulled toward league average
   (8 phantom league-average attempts) so a 2-for-3 hex doesn't light up.
 
+## Games (`#/games`, code in `web/games.js` and `hoopscholar/games.py`)
+
+- **Pool:** players whose total minutes this season are at least `HOOP_GAMES_MIN_PER_TEAM_GAME` (12) × their
+  team's games played. Both games use the pool and this season's numbers.
+- **Guess the Player** (daily): each day's answer is the player with the lowest hash of `date:player_id`
+  from that day's pool, skipping the last `HOOP_GAMES_NO_REPEAT_DAYS` (30) answers. Puzzle #1 is
+  `HOOP_GAMES_EPOCH` (2026-11-09) and days run on Pacific time. A day's pool is frozen from game logs before
+  the Monday a week before that day's week, so a data refresh, even mid-week, can't change an answer.
+  Early in a season, when that pool has fewer than `HOOP_GAMES_MIN_DAILY_POOL` (100) players, the day uses
+  last season's pool and shows last season's card and team, so there's always a puzzle.
+  Position is shown from the start. Each miss reveals the next hint: conference, team, height, jersey, then
+  headshot, so the headshot is up before the 6th and last guess.
+- **Higher or Lower** (endless): two pool players and one of PPG, APG, RPG, TS%, USG%, AST%, REB% or
+  Defensive Rating (lower is better). There are no ties and no repeated pairs within a run.
+- Progress and streaks stay in the browser (localStorage keys `hoopscholar:guess:*` and `hoopscholar:hilo:*`).
+  Nothing is stored on the server.
+
 ## API
 
 | Endpoint | What |
@@ -134,6 +151,7 @@ lists only the libraries the website needs; `requirements.txt` stays the full lo
 | `GET /api/players/{id}/shots?season=&last=10&period=4&loc=away` | shots, hex bins and zone splits, optionally filtered by last N games, quarter (1-4, OT) and home/away; always compared with the full-season league |
 | `GET /api/players/{id}/games?season=` | game log with rolling 5-game PTS and TS% |
 | `GET /api/players/{id}/career` | every slider's percentile in every season |
+| `GET /api/games/pool` | games pool with bio and stats, every player's name for this season, frozen weekly pools for the daily puzzle |
 
 Interactive docs at http://127.0.0.1:8000/docs.
 
