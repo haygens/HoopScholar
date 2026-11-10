@@ -331,3 +331,114 @@ table.pin-head.stuck thead th { box-shadow: inset 0 -1px 0 var(--line); }
   .search.open input { display: block; position: absolute; left: 12px; right: 60px; top: 8px; height: 40px; width: auto; z-index: 11; }
   .search.open .search-results { position: absolute; top: calc(var(--topbar-h) - 4px); left: 12px; right: 12px; z-index: 11; }
 }
+
+/* ---------- nav: current section */
+.topbar nav { display: flex; gap: 18px; }
+.topbar nav a.on { opacity: 1; font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent); padding-bottom: 2px; }
+
+/* ---------- percentile card identity strip (Guess the Player) */
+.pc-id { display: flex; align-items: center; gap: 14px; margin: -4px 0 14px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.pc-shot { flex: none; width: 72px; height: 53px; border-radius: 8px; overflow: hidden; background: var(--team, #e9edf2);
+  display: flex; align-items: flex-end; justify-content: center; }
+.pc-shot img { width: 100%; height: auto; display: block; }
+.pc-id.hidden .pc-shot { background: #e9edf2; align-items: center; color: #9aa3af; font-family: var(--display); font-weight: 700; font-size: 32px; }
+.pc-name { font-family: var(--display); font-weight: 700; font-size: 26px; line-height: 1.05; text-decoration: none; color: var(--ink); }
+a.pc-name:hover { text-decoration: underline; }
+.pc-id.hidden .pc-name { color: #9aa3af; }
+.pc-sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
+
+/* ---------- games: shared */
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.g-lede { color: var(--muted); font-size: 15px; margin: -8px 0 16px; max-width: 640px; }
+.g-back { display: inline-block; font-size: 13px; color: var(--muted); text-decoration: none; margin-bottom: 10px; }
+.g-back:hover { color: var(--ink); text-decoration: underline; }
+.g-stats { display: flex; flex-wrap: wrap; gap: 8px 28px; margin: 0 0 20px; }
+.g-stats div { display: flex; flex-direction: column-reverse; }
+.g-stats dd { margin: 0; font-family: var(--display); font-weight: 700; font-size: 30px; line-height: 1; font-variant-numeric: tabular-nums; }
+.g-stats dt { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-top: 3px; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover { background: #cf4a20; border-color: #cf4a20; }
+.card h2.g-h { margin-top: 20px; }
+.g-shot { display: inline-flex; align-items: flex-end; justify-content: center; overflow: hidden; border-radius: 8px; background: var(--team, #e9edf2); }
+.g-shot img { width: 100%; height: auto; display: block; }
+.g-shot.sm { width: 84px; height: 62px; vertical-align: middle; }
+.search-results li button { display: flex; justify-content: space-between; gap: 12px; width: 100%; padding: 8px 12px; border: 0; background: none;
+  font: inherit; font-size: 14px; color: inherit; text-align: left; cursor: pointer; }
+.search-results li button:hover, .search-results li button.active { background: #f0f3f7; }
+.search-results .empty { display: block; padding: 8px 12px; }
+
+/* landing */
+.g-list { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); }
+.g-tile { display: flex; flex-direction: column; gap: 6px; padding: 20px; border: 1px solid var(--line); border-radius: 8px; text-decoration: none;
+  border-top: 4px solid var(--accent); transition: box-shadow .15s; }
+.g-tile:hover, .g-tile:focus-visible { box-shadow: 0 6px 20px rgba(15,35,64,.12); }
+.g-tag { align-self: flex-start; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--accent); }
+.g-title { font-family: var(--display); font-weight: 700; font-size: 28px; line-height: 1.05; }
+.g-blurb { font-size: 14px; color: var(--muted); line-height: 1.4; }
+.g-record { margin-top: 6px; font-size: 13px; font-weight: 600; }
+
+/* ---------- guess the player */
+.g-label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+.g-picker { width: 100%; }
+.g-picker input { padding: 10px 12px; font-size: 15px; }
+.g-picker .search-results { top: 44px; }
+.g-hints, .g-guesses, .g-hist { list-style: none; margin: 0; padding: 0; }
+.g-hints li { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 36px; padding: 4px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+.g-hints .k { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
+.g-hints li.on .v { font-weight: 700; }
+.g-hints li:not(.on) .v { font-size: 12px; }
+.g-guesses li { display: flex; gap: 8px; align-items: center; padding: 4px 0; font-size: 14px; }
+.g-guesses li.hit { font-weight: 700; }
+.g-guesses li.miss { color: var(--muted); text-decoration: line-through; text-decoration-color: #c9ced6; }
+.g-result { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; border-radius: 8px; margin-bottom: 12px; font-size: 14px; }
+.g-result strong { font-family: var(--display); font-size: 26px; line-height: 1; }
+.g-result.won { background: #e8f5ec; color: #16532c; }
+.g-result.lost { background: #fdecea; color: #7d1d17; }
+.g-result a { font-weight: 700; }
+.g-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.g-actions .btn { align-self: auto; }
+.g-hist li { display: flex; align-items: center; gap: 8px; margin: 4px 0; font-size: 12px; }
+.g-hist .k { width: 10px; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+.g-hist .bar { min-width: 22px; padding: 2px 6px; background: #8a94a3; color: #fff; font-weight: 700; text-align: right; border-radius: 3px; }
+.g-hist .bar.today { background: var(--accent); }
+
+/* ---------- higher or lower */
+.hl-q { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: center; gap: 4px 10px; text-align: center; margin: 4px 0 16px; }
+.hl-ask { font-size: 15px; color: var(--muted); }
+.hl-stat { font-family: var(--display); font-weight: 700; font-size: 32px; line-height: 1.05; }
+.hl-lower { align-self: center; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; padding: 3px 8px; border-radius: 99px; background: #e6edf8; color: var(--blue); }
+.hl-row { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: stretch; gap: 16px; max-width: 760px; margin: 0 auto; }
+.hl-vs { align-self: center; font-family: var(--display); font-weight: 700; font-size: 20px; color: var(--muted); text-transform: uppercase; }
+.hl-card { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 18px 14px; border: 2px solid var(--line); border-radius: 10px;
+  background: #fff; font: inherit; color: inherit; cursor: pointer; transition: border-color .15s, box-shadow .15s, transform .1s; }
+.hl-card:not([disabled]):hover { border-color: var(--navy); box-shadow: 0 6px 20px rgba(15,35,64,.12); }
+.hl-card:not([disabled]):active { transform: scale(.98); }
+.hl-card:focus-visible { outline: 3px solid #3661ad; outline-offset: 2px; }
+.hl-card[disabled] { cursor: default; }
+.hl-card .g-shot { width: 150px; height: 110px; }
+.hl-card .g-name { font-family: var(--display); font-weight: 700; font-size: 24px; line-height: 1.05; text-align: center; }
+.hl-card .g-sub { font-size: 13px; color: var(--muted); }
+.hl-val { margin-top: 4px; font-family: var(--display); font-weight: 800; font-size: 40px; line-height: 1; font-variant-numeric: tabular-nums; color: #b4bac4; }
+.hl-card.win { border-color: #1e8a44; }
+.hl-card.win .hl-val { color: #1e8a44; }
+.hl-card.lose .hl-val { color: var(--ink); }
+.hl-card.lose.picked { border-color: var(--red); }
+.hl-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px 14px; min-height: 52px; margin-top: 18px; text-align: center; }
+.hl-foot strong { font-size: 16px; }
+.hl-foot .ok { color: #1e8a44; }
+.hl-foot .bad { color: var(--red); }
+.hl-foot .btn { align-self: auto; }
+
+@media (max-width: 600px) {
+  .topbar nav { gap: 14px; }
+  .g-stats dd { font-size: 26px; }
+  .hl-row { gap: 8px; }
+  .hl-vs { font-size: 14px; }
+  .hl-card { padding: 12px 6px; }
+  .hl-card .g-shot { width: 100%; max-width: 130px; height: auto; aspect-ratio: 1040 / 760; }
+  .hl-card .g-name { font-size: 19px; }
+  .hl-val { font-size: 32px; }
+  .hl-stat { font-size: 26px; }
+  .g-picker input { min-height: 44px; font-size: 16px; } /* 16px keeps iOS from zooming in */
+  .g-actions .btn, .hl-foot .btn { min-height: 44px; }
+}

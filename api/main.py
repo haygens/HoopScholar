@@ -5,6 +5,7 @@
 
 Then open http://127.0.0.1:8000
 """
+import datetime as dt
 import sqlite3
 import sys
 import threading
@@ -18,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from hoopscholar import config, db, metrics  # noqa: E402
+from hoopscholar import config, db, games, metrics  # noqa: E402
 
 app = FastAPI(title="HoopScholar")
 _local = threading.local()
@@ -370,6 +371,48 @@ def player_career(player_id: int):
                                              and (sample or 0) < config.ZONE_MIN_FGA)})
         out.append({"key": m.key, "label": m.label, "group": m.group, "fmt": m.fmt, "cells": cells})
     return {"seasons": player_seasons, "qualified": qualified, "metrics": out}
+
+
+GAME_STATS = ["pts", "ast", "reb", "ts_pct", "usg_pct", "ast_pct", "reb_pct", "def_rating"]
+
+
+@app.get("/api/games/pool")
+def games_pool():
+    """Everything the games pages need, in one request:
+    - players: this season's pool (games.eligible) with bio and Higher or Lower stats
+    - names: every player with stats this season (Guess the Player's search list)
+    - daily_pools: frozen weekly pools for the daily puzzle (see hoopscholar/games.py)"""
+    season = resolve_season(None)
+
+    def build():
+        c = conn()
+        pool = games.eligible(c, season)
+        frame, _ = season_data(season)
+        bio = pd.read_sql_query("SELECT player_id, team_abbr AS bio_team, jersey, height FROM players", c)
+        df = (frame[["player_id", "full_name", "team_abbr", "position", *GAME_STATS]]
+              .merge(bio, on="player_id", how="left"))
+        df["team_abbr"] = df["team_abbr"].fillna(df["bio_team"])
+        cols = ["player_id", "full_name", "team_abbr", "position", "height", "jersey", *GAME_STATS]
+        players = [{k: clean(v) for k, v in r.items()}
+                   for r in df[df["player_id"].isin(pool["player_id"])][cols].to_dict("records")]
+        # Through tomorrow in UTC, so every time zone's "today" is covered.
+        through = dt.datetime.now(dt.timezone.utc).date() + dt.timedelta(days=1)
+        daily = games.daily_pools(c, through)
+        # Guess list: everyone with stats this season, plus any season a daily
+        # pool falls back to, so the answer is always guessable. Each name shows
+        # the team from their latest of those seasons.
+        name_seasons = sorted({season, *(w["season"] for w in daily.values())})
+        names = pd.read_sql_query(f"""
+            SELECT s.player_id, p.full_name, s.team_abbr FROM player_season_stats s JOIN players p USING (player_id)
+            WHERE s.season IN ({",".join("?" * len(name_seasons))}) ORDER BY s.season""", c, params=name_seasons)
+        names = names.drop_duplicates("player_id", keep="last").sort_values("full_name")
+        names = [{"player_id": int(r.player_id), "full_name": r.full_name, "team_abbr": clean(r.team_abbr)}
+                 for r in names.itertuples()]
+        return {"season": season, "min_per_team_game": config.GAMES_MIN_PER_TEAM_GAME,
+                "epoch": config.GAMES_EPOCH, "no_repeat_days": config.GAMES_NO_REPEAT_DAYS,
+                "stats": GAME_STATS, "players": players, "names": names, "daily_pools": daily}
+    # The cache key includes the day, so daily_pools picks up a new week on its own.
+    return cached("games_pool:" + dt.date.today().isoformat(), season, build)
 
 
 # ------------------------------------------------------------------ static site

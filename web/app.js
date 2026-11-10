@@ -59,8 +59,11 @@ async function route() {
   window.scrollTo(0, 0);
   try {
     if (parts[0] !== "player") $("#band").innerHTML = "";
+    document.querySelectorAll(".topbar nav a").forEach((a) =>
+      a.classList.toggle("on", a.dataset.nav === (parts[0] === "games" ? "games" : "home")));
     if (parts[0] === "player" && parts[1]) await renderPlayer(+parts[1], params.get("season"), params.get("vs"), params.get("tab"));
     else if (parts[0] === "team" && parts[1]) await renderTeam(parts[1], params.get("season"));
+    else if (parts[0] === "games") await renderGames(parts[1]);  // games.js
     else await renderLeaderboard(params);
     pinHeads();
   } catch (e) {
@@ -223,6 +226,40 @@ function sliderBlock(sliders, oBy = {}) {
     </div>`).join("");
 }
 
+const headshotUrl = (id) => `https://cdn.nba.com/headshots/nba/latest/1040x760/${id}.png`;
+
+// The percentile card for one player-season (d from /api/players/{id}).
+// Options:
+//   identity  show a strip with headshot, name and team (the player page skips
+//             it because the band above already says who it is)
+//   hidden    with identity: mask the headshot, name and team (Guess the Player)
+//   controls  extra HTML next to the title (the player page's compare picker)
+//   extra     HTML between the title row and the sliders (season toggle, legend)
+//   overlay   comparison sliders by key, see sliderBlock()
+function percentileCard(d, { identity = false, hidden = false, controls = "", extra = "", overlay = {} } = {}) {
+  const p = d.player, abbr = d.stats?.team_abbr || p.team_abbr;
+  const who = !identity ? "" : hidden ? `
+    <div class="pc-id hidden" aria-label="Mystery player">
+      <div class="pc-shot"><span aria-hidden="true">?</span></div>
+      <div><div class="pc-name">Mystery player</div><div class="pc-sub">??? · ${esc(d.season)}</div></div>
+    </div>` : `
+    <div class="pc-id" style="--team:${teamColor(abbr)}">
+      <div class="pc-shot"><img src="${headshotUrl(p.player_id)}" alt="" loading="lazy" onerror="this.remove()"></div>
+      <div><a class="pc-name" href="#/player/${p.player_id}?season=${d.season}">${esc(p.full_name)}</a>
+        <div class="pc-sub">${[teamLink(abbr, d.season, true), ...[p.position, p.height].filter(Boolean).map(esc)].filter(Boolean).join(" · ")}</div></div>
+    </div>`;
+  return `
+    <section class="card pct-card">
+      ${who}
+      <div class="card-head">
+        <h2 id="pct-title">${d.season} Percentile Rankings</h2>
+        ${controls}
+      </div>
+      ${extra}
+      <div id="sliders">${sliderBlock(d.sliders, overlay)}</div>
+    </section>`;
+}
+
 async function renderPlayer(id, season, vs, tab) {
   const qs = season ? `?season=${season}` : "";
   const d = await api(`/api/players/${id}${qs}`);
@@ -250,23 +287,20 @@ async function renderPlayer(id, season, vs, tab) {
     ${playerHead(d, "overview", vsId)}
 
     <div class="grid two">
-      <section class="card">
-        <div class="card-head">
-          <h2 id="pct-title">${d.season} Percentile Rankings</h2>
-          <div class="picker">
+      ${percentileCard(d, {
+        controls: `<div class="picker">
             <input id="cmp" type="search" placeholder="Compare with a player…" autocomplete="off" aria-label="Compare with a player">
             <ul id="cmp-results" class="search-results" hidden></ul>
-          </div>
-        </div>
-        ${prevSeason ? `<div class="seg small" id="pct-season" role="group" aria-label="Percentiles from">
+          </div>`,
+        extra: `${prevSeason ? `<div class="seg small" id="pct-season" role="group" aria-label="Percentiles from">
           <button data-v="${d.season}" class="on" aria-pressed="true">This season</button><button data-v="${prevSeason}" aria-pressed="false">Last season (${prevSeason})</button></div>` : ""}
         ${o ? `<div class="compare-legend">
           <span><span class="key a"></span>${esc(p.full_name)}</span>
           <span><span class="key b"></span><a href="#/player/${o.player.player_id}?season=${o.season}">${esc(o.player.full_name)}</a>${o.season !== d.season ? ` <span class="muted">(${o.season}, no ${d.season} stats)</span>` : ""}${o.qualified ? "" : ` <span class="badge">not qualified</span>`}</span>
           <a class="clear" href="${here()}">Clear</a>
-        </div>` : vsId ? `<p class="note">Couldn't load that comparison player.</p>` : ""}
-        <div id="sliders">${sliderBlock(d.sliders, overlay(o))}</div>
-      </section>
+        </div>` : vsId ? `<p class="note">Couldn't load that comparison player.</p>` : ""}`,
+        overlay: overlay(o),
+      })}
 
       <section class="card">
         <h2 id="shot-title">${shotTitle(shots)}</h2>
