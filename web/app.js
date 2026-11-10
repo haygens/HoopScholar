@@ -63,7 +63,7 @@ async function route() {
       a.classList.toggle("on", a.dataset.nav === (parts[0] === "games" ? "games" : "home")));
     if (parts[0] === "player" && parts[1]) await renderPlayer(+parts[1], params.get("season"), params.get("vs"), params.get("tab"));
     else if (parts[0] === "team" && parts[1]) await renderTeam(parts[1], params.get("season"));
-    else if (parts[0] === "games") await renderGames(parts[1]);  // games.js
+    else if (parts[0] === "games") await renderGames(parts[1], parts[2]);  // games.js
     else await renderLeaderboard(params);
     pinHeads();
   } catch (e) {
