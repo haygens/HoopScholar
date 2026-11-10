@@ -442,3 +442,23 @@ a.pc-name:hover { text-decoration: underline; }
   .g-picker input { min-height: 44px; font-size: 16px; } /* 16px keeps iOS from zooming in */
   .g-actions .btn, .hl-foot .btn { min-height: 44px; }
 }
+
+/* ---------- guess the player: daily / unlimited */
+.seg a { display: inline-flex; align-items: center; padding: 6px 14px; font-size: 13px; font-weight: 600; text-decoration: none; color: var(--ink); background: #fff; }
+.seg a + a { border-left: 1px solid var(--line); }
+.seg a.on { background: var(--navy); color: #fff; }
+.seg a:not(.on):hover { background: #f0f3f7; }
+.seg a:focus-visible { outline: 2px solid #3661ad; outline-offset: -2px; }
+.g-modebar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: -6px 0 12px; }
+.g-modeinfo { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.g-modeinfo [data-countdown] { color: var(--ink); font-weight: 600; }
+.g-next { margin: 0 0 10px; font-size: 14px; color: var(--muted); }
+.g-next strong { color: var(--ink); font-variant-numeric: tabular-nums; }
+.g-tile-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.g-tile-actions .btn { align-self: auto; }
+@media (max-width: 600px) {
+  .seg a { min-height: 44px; padding: 0 18px; }
+  .g-modebar .seg { flex: 1 0 100%; }
+  .g-modebar .seg a { flex: 1; justify-content: center; }
+  .g-tile-actions .btn { flex: 1; min-height: 44px; }
+}
