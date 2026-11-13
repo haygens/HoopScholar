@@ -156,6 +156,7 @@ def meta():
     c = conn()
     return {
         "seasons": seasons(),
+        "backend": db.backend(),   # sqlite | libsql | turso: where this deployment reads from
         "data_source": db.get_meta(c, "data_source", "unknown"),
         "last_updated": db.get_meta(c, "last_updated"),
         "metrics": metric_meta(metrics.METRICS),

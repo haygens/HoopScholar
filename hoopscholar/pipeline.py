@@ -2,7 +2,7 @@
 import datetime as dt
 import json
 
-from . import config, db, fetch, games, load, metrics
+from . import config, db, fetch, games, load, metrics, turso_sync
 
 
 def ingest_reference(conn, season: str) -> None:
@@ -139,6 +139,7 @@ def refresh_season(conn, season: str) -> None:
     conn.executemany("INSERT INTO player_similar (player_id, season, rank, similar_id, score) VALUES (?,?,?,?,?)",
                      [(r["player_id"], r["season"], r["rank"], r["similar_id"], r["score"]) for r in sim])
     conn.commit()
+    turso_sync.add_pending(conn, seasons=[season])  # the next push replaces this season on Turso
     print(f"season {season}: {n} shot profiles, {len(rows)} summary rows "
           f"({int(frame['qualified'].sum()) if not frame.empty else 0} qualified, {len(eligible)} in games pool), "
           f"{len(sim)} similar")
@@ -165,7 +166,7 @@ def orient_neutral_games(conn, fetch_missing: bool = True) -> int:
                            WHERE (neutral = 1 OR home_team_id IS NULL OR away_team_id IS NULL)
                              AND NOT EXISTS (SELECT 1 FROM shots s WHERE s.game_id = g.game_id AND s.is_home = 1
                                              AND s.team_id = g.home_team_id)""").fetchall()
-    fixed = 0
+    fixed = []
     for game_id, season in todo:
         home = conn.execute("SELECT team_id FROM shots WHERE game_id = ? AND is_home = 1 LIMIT 1", (game_id,)).fetchone()
         if home is None and fetch_missing:
@@ -192,11 +193,12 @@ def orient_neutral_games(conn, fetch_missing: bool = True) -> int:
                         WHERE game_id = ?""",
                      (home, away, pts.get(home, stored.get(home)), pts.get(away, stored.get(away)), game_id))
         conn.execute("UPDATE shots SET is_home = (team_id = ?) WHERE game_id = ?", (home, game_id))
-        fixed += 1
+        fixed.append(game_id)
     conn.commit()
     if fixed:
-        print(f"neutral-site games: {fixed} given their designated home team")
-    return fixed
+        turso_sync.add_pending(conn, games=fixed)
+        print(f"neutral-site games: {len(fixed)} given their designated home team")
+    return len(fixed)
 
 
 def refresh_player_search(conn) -> None:
@@ -235,6 +237,22 @@ def refresh_daily_pools(conn, loaded_on: dt.date) -> int:
         week += dt.timedelta(days=7)
     conn.commit()
     return added
+
+
+def nightly(conn, season: str, rebuild_all: bool = False) -> None:
+    """The weekly update: everything since the last stored game date (minus a
+    day of overlap, which upserts absorb), then season-to-date stats and the
+    website's tables. Records the games pulled for the next Turso push."""
+    last = last_game_date(conn, season)
+    since = day_before(last) if last else None
+    print(f"Update for {season}; pulling since {since or 'season start'}")
+    ingest_reference(conn, season)   # rosters change (trades, signings)
+    ingest_games(conn, season, since)
+    ingest_player_games(conn, season)
+    shots = ingest_shots(conn, season, since)
+    ingest_season_stats(conn, season)
+    turso_sync.add_pending(conn, since={season: since})
+    finish(conn, season, "nightly", f"since={since} shots={shots}", rebuild_all=rebuild_all)
 
 
 def last_game_date(conn, season: str) -> str | None:

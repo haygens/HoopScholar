@@ -24,7 +24,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from hoopscholar import config, db, fetch, load, pipeline  # noqa: E402
+from hoopscholar import config, db, fetch, load, pipeline, turso_sync  # noqa: E402
 
 
 class Paused(Exception):
@@ -90,6 +90,7 @@ def run_season(conn, season: str, *, skip_shots=False, deadline: dt.datetime | N
             mark(name, n)
             print(f"shots: team {i:>2}/{len(teams)} -> {n}")
     step("season_stats", lambda: pipeline.ingest_season_stats(conn, season))
+    turso_sync.add_pending(conn, since={season: None})  # the next Turso push sends the whole season
     shots = conn.execute("SELECT COUNT(*) FROM shots WHERE season = ?", (season,)).fetchone()[0]
     step("finish", lambda: pipeline.finish(conn, season, "backfill", f"shots={shots}", rebuild_all=rebuild_all))
     return "done"

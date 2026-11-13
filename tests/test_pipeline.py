@@ -304,6 +304,49 @@ def test_neutral_site_games_take_home_team_from_shot_data(tmp_path):
     assert pipeline.orient_neutral_games(conn, fetch_missing=False) == 0   # nothing left to do
 
 
+def test_push_sends_the_weekly_changes_to_turso(tmp_path):
+    """After the one-time upload (a copy of the file), a weekly update plus
+    push leaves the remote identical to the local database in every table the
+    site reads, while sending only the new games' shots."""
+    import shutil
+    import sqlite3
+    import libsql
+    from hoopscholar import turso_sync
+    path = tmp_path / "local.db"
+    conn = db.connect(path)
+    db.init_schema(conn)
+    fake_fetchers("2025-12-15")
+    pipeline.nightly(conn, SEASON)
+    turso_sync.clear_pending(conn)
+    conn.close()
+    shutil.copy(path, tmp_path / "remote.db")           # the one-time upload
+
+    conn = db.connect(path)
+    fake_fetchers("2025-12-29")
+    pipeline.nightly(conn, SEASON)                      # two weeks later
+    p = turso_sync.get_pending(conn)
+    assert p["seasons"] == [SEASON] and list(p["since"]) == [SEASON] and p["since"][SEASON]
+    planned = turso_sync.plan(conn)
+    remote = libsql.connect(str(tmp_path / "remote.db"))
+    sent = turso_sync.push(conn, remote)
+    remote.close()
+    assert turso_sync.is_empty(turso_sync.get_pending(conn))
+    total_shots = conn.execute("SELECT COUNT(*) FROM shots").fetchone()[0]
+    assert sent["shots"] == planned["shots"] and 0 < sent["shots"] < total_shots / 2
+
+    r = sqlite3.connect(tmp_path / "remote.db")
+    tables = [t for (t,) in conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+              if t not in turso_sync.LOCAL_ONLY]
+    for t in tables:
+        cols = ", ".join(turso_sync._cols(conn, t))
+        where = f" WHERE key != '{turso_sync.PENDING_KEY}'" if t == "meta" else ""
+        mine = sorted(map(tuple, conn.execute(f"SELECT {cols} FROM {t}{where}")), key=repr)
+        theirs = sorted(map(tuple, r.execute(f"SELECT {cols} FROM {t}{where}")), key=repr)
+        assert mine == theirs, t
+    again = turso_sync.push(conn, libsql.connect(str(tmp_path / "remote.db")))   # nothing pending
+    assert again.get("shots", 0) == 0 and again.get("player_season_summary", 0) == 0
+
+
 def test_every_stat_has_a_tooltip():
     keys = [m.key for m in metrics.METRICS + metrics.LEADERBOARD_EXTRA]
     assert not [k for k in keys if not metrics.GLOSSARY.get(k)]
