@@ -9,10 +9,24 @@ const $ = (sel, el = document) => el.querySelector(sel);
 const app = $("#app");
 let META = null;
 
-const api = async (path) => {
-  const res = await fetch(path);
-  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
-  return res.json();
+// GET an API path as JSON. Responses are kept in memory by URL for the visit,
+// so switching tabs or going back to a season reuses what's already loaded
+// (callers must not modify what they get back). Every URL but /api/meta gets
+// ?v=<last data update>: the CDN keeps responses for a day, and a new version
+// after each update makes sure no page mixes old and new data.
+const API_CACHE = new Map(), API_CACHE_MAX = 300;
+const api = (path) => {
+  const v = META?.last_updated;
+  const url = v && !path.startsWith("/api/meta") ? `${path}${path.includes("?") ? "&" : "?"}v=${encodeURIComponent(v)}` : path;
+  if (API_CACHE.has(url)) return API_CACHE.get(url);
+  const p = fetch(url).then(async (res) => {
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
+    return res.json();
+  });
+  p.catch(() => API_CACHE.delete(url)); // don't keep failures
+  API_CACHE.set(url, p);
+  if (API_CACHE.size > API_CACHE_MAX) API_CACHE.delete(API_CACHE.keys().next().value); // oldest first
+  return p;
 };
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -80,7 +94,9 @@ async function renderLeaderboard(params) {
   const stat = params.get("stat") || "pts";
   const season = params.get("season") || META.seasons[0];
   const qualified = params.get("all") !== "1";
-  const data = await api(`/api/leaderboard?stat=${stat}&season=${season}&qualified=${qualified}&limit=100`);
+  const LB_PAGE = 50;
+  const lbUrl = (offset) => `/api/leaderboard?stat=${stat}&season=${season}&qualified=${qualified}&limit=${LB_PAGE}&offset=${offset}`;
+  const data = await api(lbUrl(0));
   const m = META.sortable.find((x) => x.key === stat);
   // Standard columns; the sorted stat is highlighted in place when it's one of
   // them, and only added as its own column when it isn't.
@@ -106,18 +122,38 @@ async function renderLeaderboard(params) {
         <thead><tr><th>#</th><th class="l">Player</th><th class="l">Team</th>${cols.map(([k, l]) => k === stat
           ? `<th class="sorted" aria-sort="${(m.higher_better ? "descending" : "ascending")}">${tip(k, l)}</th>`
           : th(k, l, PHONE_HIDDEN.has(k) ? "hide-sm" : "")).join("")}${th("percentile", "Pctl")}</tr></thead>
-        <tbody>${data.rows.map((r) => `
+        <tbody id="lb-body">${lbRows(data.rows)}</tbody>
+      </table>
+      ${data.rows.length ? "" : `<p class="muted">No players.</p>`}
+    </div>
+    <p class="lb-more"><button class="btn" id="lb-more" ${data.has_more ? "" : "hidden"}>Show ${LB_PAGE} more</button></p>`;
+
+  // Rows are appended page by page; each page is its own cached request.
+  function lbRows(rows) {
+    return rows.map((r) => `
           <tr>
             <td>${r.rank}</td>
             <td class="l"><a href="#/player/${r.player_id}?season=${season}">${esc(r.full_name)}</a></td>
             <td class="l">${teamLink(r.team_abbr, season, true)}</td>
             ${cols.map(([k, , f]) => `<td${k === stat ? ` class="sorted"` : PHONE_HIDDEN.has(k) ? ` class="hide-sm"` : ""}>${fmt(r[k], f)}</td>`).join("")}
             <td>${r.percentile == null ? "" : `<span class="chip" style="background:${pctColor(r.percentile)}">${r.percentile}</span>`}</td>
-          </tr>`).join("")}
-        </tbody>
-      </table>
-      ${data.rows.length ? "" : `<p class="muted">No players.</p>`}
-    </div>`;
+          </tr>`).join("");
+  }
+  let shown = data.rows.length;
+  $("#lb-more").addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    try {
+      const page = await api(lbUrl(shown));
+      if (!btn.isConnected) return; // navigated away meanwhile
+      $("#lb-body").insertAdjacentHTML("beforeend", lbRows(page.rows));
+      shown += page.rows.length;
+      btn.hidden = !page.has_more;
+      pinHeads();
+    } finally {
+      btn.disabled = false;
+    }
+  });
 
   const go = () => {
     const p = new URLSearchParams({ stat: $("#lb-stat").value, season: $("#lb-season").value });
@@ -271,12 +307,12 @@ async function renderPlayer(id, season, vs, tab) {
   if (tab === "games") { await renderGameLog(d, vsId); onSeason(); return; }
   if (tab === "career") { await renderCareer(d, vsId); onSeason(); return; }
 
+  // The shot chart is the heaviest request, so it starts now but the page
+  // renders without waiting for it (see loadShots below).
+  const firstShots = api(`/api/players/${id}/shots?season=${d.season}`).catch(() => null);
   // Comparison player (?vs=ID), same season when they have it; the API falls
   // back to their latest season otherwise, which the legend then names.
-  const [shots, o] = await Promise.all([
-    api(`/api/players/${id}/shots?season=${d.season}`),
-    vsId ? api(`/api/players/${vsId}?season=${d.season}`).catch(() => null) : null,
-  ]);
+  const o = vsId ? await api(`/api/players/${vsId}?season=${d.season}`).catch(() => null) : null;
   document.title = o ? `${p.full_name} vs ${o.player.full_name} · HoopScholar` : `${p.full_name} · HoopScholar`;
   const overlay = (od) => od ? Object.fromEntries(od.sliders.map((x) => [x.key, { ...x, who: od.player.full_name }])) : {};
   const here = (extra = "") => `#/player/${id}?season=${d.season}${extra}`;
@@ -303,7 +339,7 @@ async function renderPlayer(id, season, vs, tab) {
       })}
 
       <section class="card">
-        <h2 id="shot-title">${shotTitle(shots)}</h2>
+        <h2 id="shot-title">Shot Chart</h2>
         <div class="filters" id="shot-filters" aria-label="Filter shots">
           <label>Games <select name="last"><option value="">All</option><option value="5">Last 5</option><option value="10">Last 10</option><option value="20">Last 20</option></select></label>
           <label>Quarter <select name="period"><option value="">All</option><option value="1">1st</option><option value="2">2nd</option><option value="3">3rd</option><option value="4">4th</option><option value="OT">OT</option></select></label>
@@ -313,11 +349,11 @@ async function renderPlayer(id, season, vs, tab) {
           <div class="seg" id="view"><button data-v="dots" class="on">Shots</button><button data-v="hex">Hot zones</button></div>
           <div class="seg" id="result"><button data-v="all" class="on">All</button><button data-v="made">Made</button><button data-v="miss">Missed</button></div>
         </div>
-        <div id="shot-area">
-          <div id="chart"></div>
+        <div id="shot-area" style="opacity:.5">
+          <div id="chart"><p class="muted">Loading shots…</p></div>
           <div class="legend" id="legend"></div>
           <h2 style="margin-top:22px">Shot Zones</h2>
-          <div id="zones">${zoneTable(shots.zones)}</div>
+          <div id="zones"></div>
         </div>
       </section>
     </div>
@@ -379,25 +415,35 @@ async function renderPlayer(id, season, vs, tab) {
     empty: "No players found",
   });
 
-  // Shot filters refetch the chart, hot zones and zone table together, keeping
-  // the old render (dimmed) on screen until the new one arrives.
-  let shotData = shots, shotReq = 0;
-  $("#shot-filters").addEventListener("change", async () => {
-    const f = Object.fromEntries([...$("#shot-filters").querySelectorAll("select")].filter((s) => s.value).map((s) => [s.name, s.value]));
+  // The first load and every filter change go through loadShots, which
+  // redraws the chart, hot zones and zone table together, keeping the old
+  // render (dimmed) on screen until the new one arrives. Only the latest
+  // request draws, and nothing draws once the page has been left.
+  const area = $("#shot-area");
+  let shotData = null, shotReq = 0;
+  const loadShots = async (request) => {
     const mine = ++shotReq;
-    $("#shot-area").style.opacity = ".5";
-    const res = await api(`/api/players/${id}/shots?${new URLSearchParams({ season: d.season, ...f })}`).catch(() => null);
-    if (mine !== shotReq) return;
-    $("#shot-area").style.opacity = "";
-    if (!res) return;
+    area.style.opacity = ".5";
+    const res = await request;
+    if (mine !== shotReq || !area.isConnected) return;
+    area.style.opacity = "";
+    if (!res) {
+      if (!shotData) $("#chart").innerHTML = `<p class="muted">Couldn't load the shot chart. Try reloading the page.</p>`;
+      return;
+    }
     shotData = res;
     $("#shot-title").textContent = shotTitle(res);
     $("#zones").innerHTML = zoneTable(res.zones);
     draw();
+  };
+  $("#shot-filters").addEventListener("change", () => {
+    const f = Object.fromEntries([...$("#shot-filters").querySelectorAll("select")].filter((s) => s.value).map((s) => [s.name, s.value]));
+    loadShots(api(`/api/players/${id}/shots?${new URLSearchParams({ season: d.season, ...f })}`).catch(() => null));
   });
 
   const state = { view: "dots", result: "all" };
   const draw = () => {
+    if (!shotData) return;
     $("#chart").innerHTML = shotChart(shotData, state);
     const sparse = shotData.hexes.filter((h) => h.fga >= 3).length < 5;
     $("#legend").innerHTML = state.view === "hex"
@@ -414,7 +460,7 @@ async function renderPlayer(id, season, vs, tab) {
       state[id] = b.dataset.v; draw();
     });
   }
-  draw();
+  loadShots(firstShots);
 }
 
 // "Shot Chart · 54 FGA · last 10 games · 4th quarter · away"
@@ -695,7 +741,7 @@ function autocomplete(input, list, { href, accept = () => true, empty = "No play
     timer = setTimeout(async () => {
       const res = (await api(`/api/search?q=${encodeURIComponent(q)}`)).filter(accept);
       if (mine === seq) { items = res; active = -1; paint(); }
-    }, 150);
+    }, 300); // wait for a pause in typing: one request per word, not per key
   });
   input.addEventListener("keydown", (e) => {
     if (list.hidden || !items.length) return;

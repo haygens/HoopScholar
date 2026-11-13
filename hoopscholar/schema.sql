@@ -31,9 +31,21 @@ CREATE TABLE IF NOT EXISTS players (
     is_active     INTEGER NOT NULL DEFAULT 1,
     from_year     TEXT,
     to_year       TEXT,
-    updated_at    TEXT
+    updated_at    TEXT,
+    -- Latest season with stats and that season's team, for search (set by
+    -- pipeline.refresh_player_search). team_id/team_abbr above are the CURRENT
+    -- team and only the current season's player index sets them; a player
+    -- first seen in a past season has them NULL. Team by season lives in
+    -- player_season_stats.team_abbr.
+    last_season   TEXT,
+    last_team     TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_players_name ON players(full_name);
+-- Search is prefix-only on full, first and last name. NOCASE indexes let
+-- "LIKE 'jam%'" (case-insensitive by default) use an index range.
+DROP INDEX IF EXISTS idx_players_name;
+CREATE INDEX IF NOT EXISTS idx_players_full_nc  ON players(full_name COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS idx_players_first_nc ON players(first_name COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS idx_players_last_nc  ON players(last_name COLLATE NOCASE);
 
 CREATE TABLE IF NOT EXISTS games (
     game_id       TEXT PRIMARY KEY,          -- NBA ids are zero-padded strings, e.g. '0022500001'
@@ -68,6 +80,7 @@ CREATE TABLE IF NOT EXISTS shots (
     distance           INTEGER,              -- feet
     loc_x              INTEGER,
     loc_y              INTEGER,
+    is_home            INTEGER,              -- 1 / 0 from games, set by pipeline.fill_shot_home (saves a join per shot)
     PRIMARY KEY (game_id, game_event_id)
 );
 CREATE INDEX IF NOT EXISTS idx_shots_player_season ON shots(player_id, season);
@@ -127,6 +140,7 @@ CREATE TABLE IF NOT EXISTS player_game_logs (
     plus_minus INTEGER,
     PRIMARY KEY (player_id, game_id)
 ) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS idx_game_logs_player_season ON player_game_logs(player_id, season);
 
 -- Top 5 most similar qualified players per qualified player-season, by cosine
 -- similarity of centered slider percentiles. Built by metrics.refresh_similar().
@@ -137,6 +151,83 @@ CREATE TABLE IF NOT EXISTS player_similar (
     similar_id  INTEGER NOT NULL,
     score       REAL,                 -- cosine similarity, -1..1
     PRIMARY KEY (player_id, season, rank)
+);
+
+-- ---------------------------------------------------------------------------
+-- Precomputed for the website, rebuilt per season by pipeline.refresh_season()
+-- (the weekly job does only the current season). The API reads these instead
+-- of scanning shots or rebuilding percentiles, so a page is a few dozen rows.
+
+-- One row per player-season: per-game stats, shot profile, qualification and
+-- percentiles (p_<metric>, ranked within that season's qualified pool; see
+-- metrics.percentiles). Columns must match metrics.SUMMARY_COLS.
+CREATE TABLE IF NOT EXISTS player_season_summary (
+    player_id   INTEGER NOT NULL,
+    season      TEXT NOT NULL,
+    full_name   TEXT, position TEXT, team_abbr TEXT, age REAL,
+    gp INTEGER, min REAL,
+    pts REAL, reb REAL, ast REAL, stl REAL, blk REAL, tov REAL, fga REAL, fta REAL,
+    fg_pct REAL, fg3_pct REAL, ft_pct REAL,
+    ts_pct REAL, efg_pct REAL, usg_pct REAL, ast_pct REAL, reb_pct REAL, tov_pct REAL,
+    def_rating REAL, net_rating REAL, pie REAL, dist_miles REAL, avg_speed REAL,
+    avg_distance REAL, rim_fga INTEGER, rim_fg_pct REAL, mid_fga INTEGER, mid_fg_pct REAL,
+    corner3_fga INTEGER, corner3_pct REAL, rim_rate REAL, three_rate REAL,
+    tov_opps REAL,             -- season FGA + 0.44*FTA + TOV, for the TOV% minimum
+    tsa REAL,                  -- season FGA + 0.44*FTA, for the TS% minimum
+    qualified INTEGER NOT NULL DEFAULT 0,
+    games_eligible INTEGER NOT NULL DEFAULT 0,   -- in the games pool (games.eligible)
+    p_pts REAL, p_ts_pct REAL, p_usg_pct REAL, p_rim_fg_pct REAL, p_mid_fg_pct REAL,
+    p_fg3_pct REAL, p_corner3_pct REAL, p_ft_pct REAL, p_ast REAL, p_ast_pct REAL,
+    p_tov_pct REAL, p_reb_pct REAL, p_stl REAL, p_blk REAL, p_def_rating REAL,
+    p_net_rating REAL, p_pie REAL, p_dist_miles REAL, p_avg_speed REAL,
+    PRIMARY KEY (player_id, season)
+);
+-- Leaderboards and the games pool read one season; team pages one team-season.
+CREATE INDEX IF NOT EXISTS idx_summary_season_team ON player_season_summary(season, team_abbr);
+CREATE INDEX IF NOT EXISTS idx_summary_team_season ON player_season_summary(team_abbr, season);
+
+-- Season-wide numbers the pages show next to a player-season.
+CREATE TABLE IF NOT EXISTS season_info (
+    season        TEXT PRIMARY KEY,
+    players       INTEGER,     -- player-seasons with stats
+    pool_size     INTEGER,     -- qualified players
+    max_gp        INTEGER,     -- league-leading games played
+    pool_min_fga  INTEGER,     -- metrics.pool_min_fga
+    min_tov_opps  INTEGER,     -- metrics.min_tov_opps
+    min_tsa       INTEGER,     -- metrics.min_tsa
+    updated_at    TEXT
+);
+
+-- League FG% by zone per season (fg_pct NULL where metrics.NO_LEAGUE_AVG_ZONES).
+CREATE TABLE IF NOT EXISTS league_zone_averages (
+    season      TEXT NOT NULL,
+    zone_basic  TEXT NOT NULL,
+    fga INTEGER, fgm INTEGER, fg_pct REAL,
+    PRIMARY KEY (season, zone_basic)
+) WITHOUT ROWID;
+
+-- Each player's attempts and makes by zone per season.
+CREATE TABLE IF NOT EXISTS player_zone_splits (
+    player_id   INTEGER NOT NULL,
+    season      TEXT NOT NULL,
+    zone_basic  TEXT NOT NULL,
+    fga INTEGER, fgm INTEGER,
+    PRIMARY KEY (player_id, season, zone_basic)
+) WITHOUT ROWID;
+
+-- League attempts and makes per 2 ft hexagon per season (metrics.hexbin), for hot zones.
+CREATE TABLE IF NOT EXISTS league_hex_bins (
+    season  TEXT NOT NULL,
+    q INTEGER NOT NULL, r INTEGER NOT NULL,
+    fga INTEGER, fgm INTEGER,
+    PRIMARY KEY (season, q, r)
+) WITHOUT ROWID;
+
+-- Guess the Player's frozen weekly pools (games.daily_pool), one row per week.
+CREATE TABLE IF NOT EXISTS games_daily_pool (
+    week    TEXT PRIMARY KEY,      -- ISO Monday
+    season  TEXT NOT NULL,
+    ids     TEXT NOT NULL          -- JSON array of player ids
 );
 
 CREATE TABLE IF NOT EXISTS meta (

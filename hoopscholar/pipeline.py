@@ -1,19 +1,20 @@
 """The ingest steps shared by backfill and nightly runs."""
 import datetime as dt
+import json
 
-from . import config, db, fetch, load, metrics
+from . import config, db, fetch, games, load, metrics
 
 
 def ingest_reference(conn, season: str) -> None:
-    """Teams, plus the player index. Only the current season's index updates
-    existing players (team, roster status, bio); an older season's index only
-    adds players we're missing, so backfilling last season can't put anyone
-    back on their old team."""
+    """Teams, plus the player index. Only the current season's index sets
+    current team and roster status. An older season's index adds players we're
+    missing (with their bio, no current team, inactive) and fills blank bio
+    fields, so backfilling an old season can't put anyone back on an old team."""
     n = load.load_teams(conn, fetch.teams())
     print(f"teams: {n}")
     past = season < config.CURRENT_SEASON
-    n = load.load_players(conn, fetch.player_index(season), insert_only=past)
-    print(f"players: {n}" + (" new (past season: existing players left as they are)" if past else ""))
+    n = load.load_players(conn, fetch.player_index(season), past=past)
+    print(f"players: {n}" + (" new (past season: current teams left as they are)" if past else ""))
     conn.commit()
 
 
@@ -69,23 +70,123 @@ def ingest_season_stats(conn, season: str) -> int:
     return n
 
 
-def finish(conn, season: str, kind: str, detail: str) -> None:
-    # Rebuild every stored season, not just this one: it's local SQL (no
-    # network), and it keeps older seasons in step when the profile logic changes.
-    stored = [r[0] for r in conn.execute("SELECT DISTINCT season FROM shots ORDER BY season")]
-    for s in sorted(set(stored) | {season}):
-        n = metrics.refresh_shot_profiles(conn, s)
-        print(f"shot profiles {s}: {n}")
-    # Similar players use the shot profiles above, so they come second.
-    with_stats = [r[0] for r in conn.execute("SELECT DISTINCT season FROM player_season_stats")]
-    for s in sorted(set(with_stats) | {season}):
-        n = metrics.refresh_similar(conn, s)
-        print(f"similar players {s}: {n}")
+def finish(conn, season: str, kind: str, detail: str, rebuild_all: bool = False,
+           today: dt.date | None = None) -> None:
+    """Build everything the website reads. Rebuilds `season`, plus any stored
+    season that has never been built (so the first run after an upgrade, or
+    after backfilling a season, fills it in). rebuild_all=True redoes every
+    season, for when the percentile or profile logic changes."""
+    today = today or dt.date.today()
+    if season == config.CURRENT_SEASON:
+        # This run just pulled the current season, so every game before today is loaded.
+        db.set_meta(conn, "current_loaded_on", today.isoformat())
+    stored = {r[0] for r in conn.execute("SELECT DISTINCT season FROM player_season_stats")}
+    built = {r[0] for r in conn.execute("SELECT season FROM season_info")}
+    build_derived(conn, stored if rebuild_all else ({season} & stored) | (stored - built))
     db.set_meta(conn, "last_updated", db.now_iso())
     db.set_meta(conn, "data_source", "nba.com")
     db.log_run(conn, kind, season, detail)
     conn.commit()
     db.compact(conn)
+
+
+def build_derived(conn, seasons) -> None:
+    """Everything the website reads that comes from local data (no network):
+    shots.is_home, each given season's derived tables, search columns and the
+    stored daily pools."""
+    fill_shot_home(conn)
+    for s in sorted(seasons):
+        refresh_season(conn, s)
+    refresh_player_search(conn)
+    loaded_on = db.get_meta(conn, "current_loaded_on")
+    n = refresh_daily_pools(conn, dt.date.fromisoformat(loaded_on)) if loaded_on else 0
+    print(f"daily pools: {n} new week(s)")
+
+
+def refresh_season(conn, season: str) -> None:
+    """Rebuild one season's derived tables: shot profile, summary (stats +
+    percentiles within this season), season_info, zone splits, league zone
+    averages, league hex bins and similar players. Local data only."""
+    n = metrics.refresh_shot_profiles(conn, season)
+    frame = metrics.season_frame(conn, season)   # uses the shot profiles above
+    pcts = metrics.percentiles(frame) if not frame.empty else None
+    eligible = games.eligible(conn, season)["player_id"]
+    rows = metrics.summary_rows(frame, pcts, season, eligible) if pcts is not None else []
+    cols = metrics.SUMMARY_COLS
+    conn.execute("DELETE FROM player_season_summary WHERE season = ?", (season,))
+    conn.executemany(f"INSERT INTO player_season_summary ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})", rows)
+
+    conn.execute("DELETE FROM season_info WHERE season = ?", (season,))
+    if not frame.empty:
+        mins = metrics.minimums(frame)
+        conn.execute("""INSERT INTO season_info (season, players, pool_size, max_gp, pool_min_fga,
+                        min_tov_opps, min_tsa, updated_at) VALUES (?,?,?,?,?,?,?,?)""",
+                     (season, len(frame), int(frame["qualified"].sum()), int(frame["gp"].max() or 0),
+                      int(mins["pool_min_fga"]), int(mins["min_tov_opps"]), int(mins["min_tsa"]), db.now_iso()))
+
+    conn.execute("DELETE FROM player_zone_splits WHERE season = ?", (season,))
+    conn.executemany("INSERT INTO player_zone_splits VALUES (?,?,?,?,?)", metrics.zone_splits(conn, season))
+    conn.execute("DELETE FROM league_zone_averages WHERE season = ?", (season,))
+    conn.executemany("INSERT INTO league_zone_averages VALUES (?,?,?,?,?)",
+                     [(season, z, v["fga"], v["fgm"], v["fg_pct"])
+                      for z, v in metrics.league_zone_averages(conn, season).items() if z is not None])
+    conn.execute("DELETE FROM league_hex_bins WHERE season = ?", (season,))
+    conn.executemany("INSERT INTO league_hex_bins VALUES (?,?,?,?,?)", metrics.league_hex_rows(conn, season))
+
+    sim = metrics.similar_players(frame, pcts, season) if pcts is not None else []
+    conn.execute("DELETE FROM player_similar WHERE season = ?", (season,))
+    conn.executemany("INSERT INTO player_similar (player_id, season, rank, similar_id, score) VALUES (?,?,?,?,?)",
+                     [(r["player_id"], r["season"], r["rank"], r["similar_id"], r["score"]) for r in sim])
+    conn.commit()
+    print(f"season {season}: {n} shot profiles, {len(rows)} summary rows "
+          f"({int(frame['qualified'].sum()) if not frame.empty else 0} qualified, {len(eligible)} in games pool), "
+          f"{len(sim)} similar")
+
+
+def fill_shot_home(conn) -> int:
+    """Set shots.is_home from games for shots that don't have it yet."""
+    n = conn.execute("""UPDATE shots SET is_home = (shots.team_id = g.home_team_id)
+                        FROM games g WHERE g.game_id = shots.game_id AND shots.is_home IS NULL""").rowcount
+    conn.commit()
+    return n
+
+
+def refresh_player_search(conn) -> None:
+    """Fill what search needs: first/last name on bare rows (split from the full
+    name), and each player's latest season with stats and that season's team.
+    Only rows that change are written."""
+    blank = conn.execute("SELECT player_id, full_name FROM players WHERE first_name IS NULL OR last_name IS NULL").fetchall()
+    conn.executemany("UPDATE players SET first_name = COALESCE(first_name, ?), last_name = COALESCE(last_name, ?) WHERE player_id = ?",
+                     [(*load.split_name(n), pid) for pid, n in blank])
+    conn.execute("""
+        UPDATE players SET last_season = x.season, last_team = x.team_abbr
+        FROM (SELECT player_id, season, team_abbr FROM player_season_stats s
+              WHERE season = (SELECT MAX(season) FROM player_season_stats WHERE player_id = s.player_id)) x
+        WHERE players.player_id = x.player_id
+          AND (players.last_season IS NOT x.season OR players.last_team IS NOT x.team_abbr)""")
+    conn.commit()
+
+
+def refresh_daily_pools(conn, loaded_on: dt.date) -> int:
+    """Store Guess the Player's weekly pools from the epoch through the week
+    after `loaded_on` (the day the current season's games were last pulled).
+    A stored week never changes: its pool only uses games before its cutoff
+    (see games.py), and every week stored here has its cutoff on or before
+    loaded_on's Monday, so those games are all loaded. Weeks not stored yet
+    are computed live by the website. Returns weeks added."""
+    have = {r[0] for r in conn.execute("SELECT week FROM games_daily_pool")}
+    week = games.week_start(dt.date.fromisoformat(config.GAMES_EPOCH))
+    last = games.week_start(loaded_on) + dt.timedelta(days=7)
+    added = 0
+    while week <= last:
+        if week.isoformat() not in have:
+            p = games.daily_pool(conn, week)
+            conn.execute("INSERT INTO games_daily_pool (week, season, ids) VALUES (?,?,?)",
+                         (week.isoformat(), p["season"], json.dumps(p["ids"])))
+            added += 1
+        week += dt.timedelta(days=7)
+    conn.commit()
+    return added
 
 
 def last_game_date(conn, season: str) -> str | None:

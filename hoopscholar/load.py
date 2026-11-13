@@ -36,11 +36,24 @@ def load_teams(conn, df: pd.DataFrame) -> int:
     return db.upsert(conn, "teams", rows, ["team_id"])
 
 
-def load_players(conn, df: pd.DataFrame, insert_only: bool = False) -> int:
-    """insert_only=True adds players we don't have yet and leaves existing rows
-    alone. Use it for past seasons, whose index has last season's teams."""
+# Bio fields a past season's index may fill in when we have them blank. Team,
+# jersey, roster status and career years describe that season, not today, so
+# they're never taken from a past index.
+BIO_COLS = ["first_name", "last_name", "slug", "position", "height", "weight", "country",
+            "college", "draft_year", "draft_round", "draft_number"]
+
+
+def load_players(conn, df: pd.DataFrame, past: bool = False) -> int:
+    """The player index -> players.
+
+    past=False (the current season): full upsert, so current team, jersey and
+    roster status stay up to date.
+    past=True (a backfilled season): players we don't have yet are added with
+    their bio but no current team and is_active=0 (they may be retired; if
+    they're still playing, the current season's index sets both). Players we
+    already have only get blank bio fields filled in. Their current team and
+    status are never touched. Team by season is in player_season_stats."""
     now = db.now_iso()
-    known = {r[0] for r in conn.execute("SELECT player_id FROM players")} if insert_only else set()
     rows = []
     for r in df.to_dict("records"):
         first, last = r.get("PLAYER_FIRST_NAME") or "", r.get("PLAYER_LAST_NAME") or ""
@@ -66,19 +79,35 @@ def load_players(conn, df: pd.DataFrame, insert_only: bool = False) -> int:
             "to_year": _clean(r.get("TO_YEAR")),
             "updated_at": now,
         })
-    rows = [r for r in rows if r["player_id"] not in known]
-    return db.upsert(conn, "players", rows, ["player_id"])
+    if not past:
+        return db.upsert(conn, "players", rows, ["player_id"])
+
+    known = {r[0] for r in conn.execute("SELECT player_id FROM players")}
+    new = [{**r, "team_id": None, "team_abbr": None, "jersey": None, "is_active": 0}
+           for r in rows if r["player_id"] not in known]
+    db.upsert(conn, "players", new, ["player_id"])
+    fill = ", ".join(f"{c} = COALESCE({c}, ?)" for c in BIO_COLS)
+    conn.executemany(f"UPDATE players SET {fill} WHERE player_id = ?",
+                     [[r[c] for c in BIO_COLS] + [r["player_id"]] for r in rows if r["player_id"] in known])
+    return len(new)
+
+
+def split_name(full: str) -> tuple[str, str]:
+    """'Shai Gilgeous-Alexander' -> ('Shai', 'Gilgeous-Alexander'), for search on bare rows."""
+    first, _, last = str(full).strip().partition(" ")
+    return first, last
 
 
 def ensure_players(conn, df: pd.DataFrame) -> None:
     """Add bare player rows for anyone in a stats/shots frame we haven't seen
-    (e.g. waived players missing from the current PlayerIndex)."""
+    (e.g. waived players missing from the current PlayerIndex). First and last
+    name come from splitting the full name, so search finds them."""
     if df is None or df.empty or "PLAYER_ID" not in df:
         return
     pairs = df[["PLAYER_ID", "PLAYER_NAME"]].drop_duplicates("PLAYER_ID")
     conn.executemany(
-        "INSERT OR IGNORE INTO players (player_id, full_name, is_active) VALUES (?, ?, 0)",
-        [(int(p), str(n)) for p, n in pairs.itertuples(index=False)],
+        "INSERT OR IGNORE INTO players (player_id, full_name, first_name, last_name, is_active) VALUES (?, ?, ?, ?, 0)",
+        [(int(p), str(n), *split_name(n)) for p, n in pairs.itertuples(index=False)],
     )
 
 

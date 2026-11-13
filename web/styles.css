@@ -156,6 +156,10 @@ tr.nq td { color: var(--muted); }
   border: 1px solid var(--navy); border-radius: 6px; color: var(--navy); background: #fff; font-size: 13px; font-weight: 600; text-decoration: none; }
 .btn:hover { background: var(--navy); color: #fff; }
 .btn:focus-visible { outline: 2px solid #3661ad; outline-offset: 2px; }
+.btn:disabled { opacity: .6; cursor: progress; }
+.lb-more { text-align: center; margin: 14px 0 0; }
+.lb-more .btn { cursor: pointer; }
+.lb-more .btn[hidden] { display: none; }
 .team-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; }
 @media (max-width: 700px) {
   .sim-tiles { grid-template-columns: 1fr; }

@@ -103,23 +103,62 @@ def test_backfill_then_nightly():
     assert {b for _, b, _ in sim} <= set(q.index)
     games = conn.execute("SELECT COUNT(*) FROM games WHERE home_team_id IS NULL OR away_team_id IS NULL").fetchone()[0]
     assert games == 0
-    check_api(path, int(q.index[0]))
+    check_summary(conn, frame, metrics.percentiles(frame))
+    for backend in ("sqlite", "libsql"):
+        check_api(path, int(q.index[0]), backend)
     print(f"ok: backfill {n1} shots, nightly -> {n2}, {len(q)} qualified players")
 
 
+def check_summary(conn, frame, pct):
+    """The precomputed tables hold exactly what the site used to compute on the fly."""
+    import pandas as pd
+    s = pd.read_sql_query("SELECT * FROM player_season_summary WHERE season=?", conn, params=(SEASON,)).set_index("player_id")
+    f, p = frame.set_index("player_id"), pct.set_index("player_id")
+    assert set(s.index) == set(f.index)
+    for m in metrics.METRICS:
+        assert ((s[f"p_{m.key}"] == p.loc[s.index, m.key]) | (s[f"p_{m.key}"].isna() & p.loc[s.index, m.key].isna())).all(), m.key
+    assert (s["qualified"].astype(bool) == f.loc[s.index, "qualified"]).all()
+    info = conn.execute("SELECT pool_size, max_gp, pool_min_fga FROM season_info WHERE season=?", (SEASON,)).fetchone()
+    assert tuple(info) == (int(f["qualified"].sum()), int(f["gp"].max()), metrics.pool_min_fga(frame))
+    # zone splits and league zones add up to the shots table
+    one = lambda sql: tuple(conn.execute(sql, (SEASON,)).fetchone())
+    shots = one("SELECT COUNT(*), SUM(made) FROM shots WHERE season=?")
+    assert one("SELECT SUM(fga), SUM(fgm) FROM player_zone_splits WHERE season=?") == shots
+    assert one("SELECT SUM(fga), SUM(fgm) FROM league_zone_averages WHERE season=?") == shots
+    in_court = conn.execute("SELECT COUNT(*) FROM shots WHERE season=? AND loc_y <= 422.5", (SEASON,)).fetchone()[0]
+    assert conn.execute("SELECT SUM(fga) FROM league_hex_bins WHERE season=?", (SEASON,)).fetchone()[0] == in_court
+    assert conn.execute("SELECT COUNT(*) FROM shots WHERE is_home IS NULL").fetchone()[0] == 0
+    # search columns
+    assert conn.execute("""SELECT COUNT(*) FROM players WHERE player_id IN (SELECT player_id FROM player_season_stats)
+                           AND (last_season IS NULL OR first_name IS NULL)""").fetchone()[0] == 0
 
 
-def check_api(path, pid):
-    """The site's endpoints against the database the pipeline just built."""
+def check_api(path, pid, backend="sqlite"):
+    """The site's endpoints against the database the pipeline just built,
+    read through `backend` (HOOP_DB_BACKEND)."""
+    import os
     import warnings
     from hoopscholar import config
     warnings.simplefilter("ignore")
     from fastapi.testclient import TestClient
     import api.main as site
     config.DB_PATH = path
-    site._local.__dict__.clear()   # drop any connection to another database
-    site._cache.clear()
-    t = TestClient(site.app)
+    old = os.environ.get("HOOP_DB_BACKEND")
+    os.environ["HOOP_DB_BACKEND"] = backend
+    try:
+        site._local.__dict__.clear()   # drop any connection to another database
+        site._cache.clear()
+        _check_api(TestClient(site.app), pid)
+        assert type(site.conn()).__name__ == ("LibsqlConnection" if backend == "libsql" else "Connection")
+    finally:
+        site._local.__dict__.clear()
+        if old is None:
+            os.environ.pop("HOOP_DB_BACKEND", None)
+        else:
+            os.environ["HOOP_DB_BACKEND"] = old
+
+
+def _check_api(t, pid):
     get = lambda url, **p: t.get(url, params=p).json()
 
     shots = lambda **f: len(get(f"/api/players/{pid}/shots", **f)["shots"])
@@ -136,10 +175,64 @@ def check_api(path, pid):
     assert c["seasons"] and all(len(m["cells"]) == len(c["seasons"]) for m in c["metrics"])
     p = get(f"/api/players/{pid}")
     assert len(p["similar"]) == 5
+    assert p["zones"] and sum(z["fga"] for z in p["zones"]) == total
     abbr = p["stats"]["team_abbr"]
     team = get(f"/api/teams/{abbr}")
     assert any(r["player_id"] == pid for r in team["roster"])
     assert any(x["kind"] == "team" for x in get("/api/search", q=abbr))
+
+    # Search: prefix on full, first and last name, case-insensitive, at most 10
+    name = p["player"]["full_name"]
+    first, _, last = name.partition(" ")
+    for q in (f"{first} {last[:2]}".lower(), last.upper(), name):
+        assert any(x.get("player_id") == pid for x in get("/api/search", q=q)), q
+    assert not any(x.get("player_id") == pid for x in get("/api/search", q=name[1:5]))  # not mid-word
+    assert len(get("/api/search", q="a")) <= 10
+    assert t.get("/api/search", params={"q": "a", "limit": 50}).status_code == 422
+
+    # Leaderboard pages: 50 by default, pages don't overlap, ranks continue
+    lb = get("/api/leaderboard", stat="pts", qualified="false")
+    assert len(lb["rows"]) <= 50 and lb["offset"] == 0
+    if lb["has_more"]:
+        nxt = get("/api/leaderboard", stat="pts", qualified="false", offset=50)
+        assert nxt["rows"][0]["rank"] == 51
+        assert not {r["player_id"] for r in lb["rows"]} & {r["player_id"] for r in nxt["rows"]}
+    assert t.get("/api/leaderboard", params={"limit": 500}).status_code == 422
+    ts = get("/api/leaderboard", stat="ts_pct")
+    assert ts["minimum"]["unit"].startswith("true shooting") and ts["rows"]
+
+    # Cache headers: long on data, short on meta, none on errors
+    r = t.get(f"/api/players/{pid}")
+    assert r.headers["cache-control"] == "public, s-maxage=86400, stale-while-revalidate=604800"
+    assert t.get("/api/meta").headers["cache-control"].startswith("public, s-maxage=300")
+    assert "cache-control" not in t.get("/api/leaderboard", params={"stat": "nope"}).headers
+    assert get("/api/games/pool", day="2026-01-01")["names"]
+
+
+def test_past_season_index_keeps_current_teams(tmp_path):
+    """Backfilling an old season adds missing players with their bio (no current
+    team, inactive) and fills blank bio fields, but never changes a current team."""
+    import pandas as pd
+    from hoopscholar import load
+    conn = db.connect(tmp_path / "p.db")
+    db.init_schema(conn)
+    person = lambda pid, first, last, team, abbr, **kw: {
+        "PERSON_ID": pid, "PLAYER_FIRST_NAME": first, "PLAYER_LAST_NAME": last,
+        "TEAM_ID": team, "TEAM_ABBREVIATION": abbr, "ROSTER_STATUS": 1, **kw}
+    load.load_players(conn, pd.DataFrame([person(1, "Ann", "Current", 10, "AAA", JERSEY_NUMBER="7")]))
+    load.ensure_players(conn, pd.DataFrame({"PLAYER_ID": [3], "PLAYER_NAME": ["Bare Name"]}))
+    load.load_players(conn, pd.DataFrame([
+        person(1, "Ann", "Current", 20, "BBB", HEIGHT="6-5", JERSEY_NUMBER="99"),   # her old team that season
+        person(2, "Old", "Timer", 30, "CCC", HEIGHT="6-9", COLLEGE="State"),        # retired since
+        person(3, "Bare", "Name", 30, "CCC", COLLEGE="Tech"),
+    ]), past=True)
+    get = lambda pid: dict(conn.execute("SELECT * FROM players WHERE player_id=?", (pid,)).fetchone())
+    ann, old, bare = get(1), get(2), get(3)
+    assert (ann["team_id"], ann["team_abbr"], ann["jersey"], ann["is_active"]) == (10, "AAA", "7", 1)
+    assert ann["height"] == "6-5"                                   # blank bio field filled
+    assert (old["team_id"], old["team_abbr"], old["is_active"]) == (None, None, 0)
+    assert (old["full_name"], old["height"], old["college"]) == ("Old Timer", "6-9", "State")
+    assert (bare["first_name"], bare["last_name"], bare["college"]) == ("Bare", "Name", "Tech")
 
 
 def test_every_stat_has_a_tooltip():

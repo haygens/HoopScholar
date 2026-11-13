@@ -20,6 +20,8 @@ def main():
     ap.add_argument("--season", default="2025-26", help="e.g. 2025-26")
     ap.add_argument("--db", default=None, help=f"database path (default {config.DB_PATH})")
     ap.add_argument("--skip-shots", action="store_true", help="skip the 30 shot-chart calls")
+    ap.add_argument("--rebuild-all", action="store_true",
+                    help="rebuild every season's precomputed tables, not just this one (after a metrics change)")
     args = ap.parse_args()
 
     t0 = time.time()
@@ -34,7 +36,7 @@ def main():
     pipeline.ingest_player_games(conn, args.season)
     shots = 0 if args.skip_shots else pipeline.ingest_shots(conn, args.season)
     pipeline.ingest_season_stats(conn, args.season)
-    pipeline.finish(conn, args.season, "backfill", f"shots={shots}")
+    pipeline.finish(conn, args.season, "backfill", f"shots={shots}", rebuild_all=args.rebuild_all)
     print(f"Done in {time.time() - t0:.0f}s")
 
 
