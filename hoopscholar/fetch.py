@@ -89,6 +89,19 @@ def shots_for_team(season: str, team_id: int, date_from: str | None = None) -> p
     )
 
 
+def shots_for_game(season: str, game_id: str) -> pd.DataFrame:
+    """Every field-goal attempt in one game (HTM names the designated home team)."""
+    return _call(
+        shotchartdetail.ShotChartDetail,
+        team_id=0,
+        player_id=0,
+        game_id_nullable=game_id,
+        season_nullable=season,
+        season_type_all_star=config.SEASON_TYPE,
+        context_measure_simple="FGA",
+    )
+
+
 def shots_for_player(season: str, player_id: int) -> pd.DataFrame:
     return _call(
         shotchartdetail.ShotChartDetail,

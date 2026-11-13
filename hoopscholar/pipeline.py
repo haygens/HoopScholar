@@ -90,10 +90,11 @@ def finish(conn, season: str, kind: str, detail: str, rebuild_all: bool = False,
     db.compact(conn)
 
 
-def build_derived(conn, seasons) -> None:
-    """Everything the website reads that comes from local data (no network):
-    shots.is_home, each given season's derived tables, search columns and the
-    stored daily pools."""
+def build_derived(conn, seasons, network: bool = True) -> None:
+    """Everything the website reads: neutral-site games' home teams, shots.is_home,
+    each given season's derived tables, search columns and the stored daily
+    pools. Only orient_neutral_games may call NBA.com, and only with network=True."""
+    orient_neutral_games(conn, fetch_missing=network)
     fill_shot_home(conn)
     for s in sorted(seasons):
         refresh_season(conn, s)
@@ -144,11 +145,58 @@ def refresh_season(conn, season: str) -> None:
 
 
 def fill_shot_home(conn) -> int:
-    """Set shots.is_home from games for shots that don't have it yet."""
+    """Set shots.is_home from games for shots that don't have it yet. Neutral-site
+    games are left to orient_neutral_games: their stored order isn't a real home team."""
     n = conn.execute("""UPDATE shots SET is_home = (shots.team_id = g.home_team_id)
-                        FROM games g WHERE g.game_id = shots.game_id AND shots.is_home IS NULL""").rowcount
+                        FROM games g WHERE g.game_id = shots.game_id AND shots.is_home IS NULL
+                          AND g.neutral = 0 AND g.home_team_id IS NOT NULL""").rowcount
     conn.commit()
     return n
+
+
+def orient_neutral_games(conn, fetch_missing: bool = True) -> int:
+    """Give neutral-site games their designated home team. NBA.com's game log
+    labels both teams '@' there (and games loaded before this fix have no home
+    team at all), but the shot data's HTM column names the home team, and
+    load_shots() turns it into shots.is_home. Points come from the box scores.
+    Games whose shots predate HTM are fetched once, one call per game, when
+    fetch_missing. Returns games fixed."""
+    todo = conn.execute("""SELECT game_id, season FROM games g
+                           WHERE (neutral = 1 OR home_team_id IS NULL OR away_team_id IS NULL)
+                             AND NOT EXISTS (SELECT 1 FROM shots s WHERE s.game_id = g.game_id AND s.is_home = 1
+                                             AND s.team_id = g.home_team_id)""").fetchall()
+    fixed = 0
+    for game_id, season in todo:
+        home = conn.execute("SELECT team_id FROM shots WHERE game_id = ? AND is_home = 1 LIMIT 1", (game_id,)).fetchone()
+        if home is None and fetch_missing:
+            df = fetch.shots_for_game(season, game_id)
+            if not df.empty:
+                load.load_shots(conn, df, season)  # upsert: same shots, now with is_home from HTM
+                home = conn.execute("SELECT team_id FROM shots WHERE game_id = ? AND is_home = 1 LIMIT 1",
+                                    (game_id,)).fetchone()
+        if home is None:
+            continue
+        home = home[0]
+        teams = {r[0] for r in conn.execute("SELECT DISTINCT team_id FROM player_game_logs WHERE game_id = ?", (game_id,))}
+        teams |= {r[0] for r in conn.execute("SELECT DISTINCT team_id FROM shots WHERE game_id = ?", (game_id,))}
+        others = teams - {home}
+        if len(others) != 1:
+            continue
+        away = others.pop()
+        pts = dict(conn.execute("SELECT team_id, SUM(pts) FROM player_game_logs WHERE game_id = ? GROUP BY team_id",
+                                (game_id,)).fetchall())
+        old = conn.execute("SELECT home_team_id, home_pts, away_team_id, away_pts FROM games WHERE game_id = ?",
+                           (game_id,)).fetchone()
+        stored = {old[0]: old[1], old[2]: old[3]}
+        conn.execute("""UPDATE games SET home_team_id = ?, away_team_id = ?, home_pts = ?, away_pts = ?, neutral = 1
+                        WHERE game_id = ?""",
+                     (home, away, pts.get(home, stored.get(home)), pts.get(away, stored.get(away)), game_id))
+        conn.execute("UPDATE shots SET is_home = (team_id = ?) WHERE game_id = ?", (home, game_id))
+        fixed += 1
+    conn.commit()
+    if fixed:
+        print(f"neutral-site games: {fixed} given their designated home team")
+    return fixed
 
 
 def refresh_player_search(conn) -> None:

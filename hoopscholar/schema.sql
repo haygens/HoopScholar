@@ -56,7 +56,11 @@ CREATE TABLE IF NOT EXISTS games (
     home_team_id  INTEGER REFERENCES teams(team_id),
     away_team_id  INTEGER REFERENCES teams(team_id),
     home_pts      INTEGER,
-    away_pts      INTEGER
+    away_pts      INTEGER,
+    -- 1 for neutral-site games (NBA Cup semifinals, Paris, Mexico City...): NBA.com's
+    -- game log labels both teams "@", so home/away comes from the shot data's
+    -- designated home team instead (pipeline.orient_neutral_games).
+    neutral       INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_games_season_date ON games(season, game_date);
 

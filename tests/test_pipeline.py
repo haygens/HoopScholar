@@ -276,6 +276,34 @@ def test_backfill_resumes_after_failure(tmp_path, monkeypatch):
     assert backfill.season_list("2016-17..2017-18") == ["2016-17", "2017-18"]
 
 
+def test_neutral_site_games_take_home_team_from_shot_data(tmp_path):
+    """NBA.com labels both teams '@' at neutral sites (here ATL @ MIL and MIL @ ATL).
+    The game keeps both scores, and the shot data's HTM decides who's home."""
+    import pandas as pd
+    from hoopscholar import load
+    conn = db.connect(tmp_path / "n.db")
+    db.init_schema(conn)
+    conn.executemany("INSERT INTO teams VALUES (?,?,?)", [(10, "ATL", "Atlanta"), (20, "MIL", "Milwaukee")])
+    load.load_games(conn, pd.DataFrame([
+        {"GAME_ID": "g1", "GAME_DATE": "2024-12-14", "TEAM_ID": 10, "MATCHUP": "ATL @ MIL", "PTS": 102},
+        {"GAME_ID": "g1", "GAME_DATE": "2024-12-14", "TEAM_ID": 20, "MATCHUP": "MIL @ ATL", "PTS": 110}]), "2024-25")
+    assert tuple(conn.execute("SELECT neutral, home_team_id, home_pts, away_team_id, away_pts FROM games").fetchone()) \
+        == (1, 20, 110, 10, 102)                                     # team-id order until oriented
+    shot = lambda ev, pid, team: {
+        "GAME_ID": "g1", "GAME_EVENT_ID": ev, "GAME_DATE": "20241214", "PLAYER_ID": pid, "PLAYER_NAME": f"P{pid}",
+        "TEAM_ID": team, "PERIOD": 1, "MINUTES_REMAINING": 5, "SECONDS_REMAINING": 0, "SHOT_MADE_FLAG": 1,
+        "ACTION_TYPE": "Jump Shot", "SHOT_TYPE": "2PT Field Goal", "SHOT_ZONE_BASIC": "Mid-Range",
+        "SHOT_ZONE_AREA": "Center(C)", "SHOT_ZONE_RANGE": "16-24 ft.", "SHOT_DISTANCE": 18, "LOC_X": 0, "LOC_Y": 180,
+        "HTM": "ATL", "VTM": "MIL"}                                  # NBA.com: Atlanta is the designated home team
+    load.load_shots(conn, pd.DataFrame([shot(1, 1, 10), shot(2, 2, 20)]), "2024-25")
+    assert pipeline.fill_shot_home(conn) == 0                        # never guesses for neutral games
+    assert pipeline.orient_neutral_games(conn, fetch_missing=False) == 1
+    assert tuple(conn.execute("SELECT neutral, home_team_id, home_pts, away_team_id, away_pts FROM games").fetchone()) \
+        == (1, 10, 102, 20, 110)
+    assert dict(conn.execute("SELECT team_id, is_home FROM shots").fetchall()) == {10: 1, 20: 0}
+    assert pipeline.orient_neutral_games(conn, fetch_missing=False) == 0   # nothing left to do
+
+
 def test_every_stat_has_a_tooltip():
     keys = [m.key for m in metrics.METRICS + metrics.LEADERBOARD_EXTRA]
     assert not [k for k in keys if not metrics.GLOSSARY.get(k)]
