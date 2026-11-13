@@ -54,9 +54,11 @@ def main():
         turso_sync.clear_pending(local)
         print("Pending list cleared.")
         return
-    if args.dry_run:
-        for t, n in turso_sync.plan(local).items():
+    if args.dry_run:  # local only: never connects to Turso
+        p = turso_sync.plan(local)
+        for t, n in p["rows"].items():
             print(f"  {t}: {n:,} rows")
+        print(f"Would make about {p['requests']} requests; estimated Turso rows read ~{p['est_rows_read']:,}.")
         return
     if turso_sync.is_empty(pending):
         print("Nothing new to push (small tables and meta are sent anyway).")
@@ -64,9 +66,9 @@ def main():
     load_user_env("TURSO_DATABASE_URL", "TURSO_AUTH_TOKEN")
     t0 = time.time()
     remote = turso_sync.connect_remote()
-    sent = turso_sync.push(local, remote)
-    total = sum(sent.values())
-    print(f"Pushed {total:,} rows to Turso in {time.time() - t0:.0f}s: "
+    res = turso_sync.push(local, remote)
+    sent = res["rows"]
+    print(f"Pushed {sum(sent.values()):,} rows to Turso in {time.time() - t0:.0f}s with {res['requests']} requests: "
           + ", ".join(f"{t} {n:,}" for t, n in sent.items() if n))
 
 

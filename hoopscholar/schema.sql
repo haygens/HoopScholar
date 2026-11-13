@@ -114,6 +114,10 @@ CREATE TABLE IF NOT EXISTS player_season_stats (
     updated_at  TEXT,
     PRIMARY KEY (player_id, season)
 );
+-- Season indexes on the per-season tables keyed by player first: the weekly
+-- Turso push replaces one season ("DELETE ... WHERE season = ?"), and without
+-- them that delete scans every season's rows (Turso bills each scanned row).
+CREATE INDEX IF NOT EXISTS idx_season_stats_season ON player_season_stats(season);
 
 -- Derived from the shots table by hoopscholar.metrics.refresh_shot_profiles().
 CREATE TABLE IF NOT EXISTS player_shot_profile (
@@ -130,6 +134,7 @@ CREATE TABLE IF NOT EXISTS player_shot_profile (
     three_rate    REAL,                       -- share of FGA from three
     PRIMARY KEY (player_id, season)
 );
+CREATE INDEX IF NOT EXISTS idx_shot_profile_season ON player_shot_profile(season);
 
 -- One box score per player per game, from LeagueGameLog (player mode), for the
 -- game-log tab and rolling trends. Date, opponent and home/away come from
@@ -157,6 +162,7 @@ CREATE TABLE IF NOT EXISTS player_similar (
     score       REAL,                 -- cosine similarity, -1..1
     PRIMARY KEY (player_id, season, rank)
 );
+CREATE INDEX IF NOT EXISTS idx_similar_season ON player_similar(season);
 
 -- ---------------------------------------------------------------------------
 -- Precomputed for the website, rebuilt per season by pipeline.refresh_season()
@@ -219,6 +225,7 @@ CREATE TABLE IF NOT EXISTS player_zone_splits (
     fga INTEGER, fgm INTEGER,
     PRIMARY KEY (player_id, season, zone_basic)
 ) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS idx_zone_splits_season ON player_zone_splits(season);
 
 -- League attempts and makes per 2 ft hexagon per season (metrics.hexbin), for hot zones.
 CREATE TABLE IF NOT EXISTS league_hex_bins (

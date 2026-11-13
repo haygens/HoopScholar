@@ -328,23 +328,76 @@ def test_push_sends_the_weekly_changes_to_turso(tmp_path):
     assert p["seasons"] == [SEASON] and list(p["since"]) == [SEASON] and p["since"][SEASON]
     planned = turso_sync.plan(conn)
     remote = libsql.connect(str(tmp_path / "remote.db"))
-    sent = turso_sync.push(conn, remote)
+    first = turso_sync.push(conn, remote)                # also syncs the schema once (no fingerprint yet)
     remote.close()
     assert turso_sync.is_empty(turso_sync.get_pending(conn))
     total_shots = conn.execute("SELECT COUNT(*) FROM shots").fetchone()[0]
-    assert sent["shots"] == planned["shots"] and 0 < sent["shots"] < total_shots / 2
+    assert first["rows"]["shots"] == planned["rows"]["shots"] and 0 < first["rows"]["shots"] < total_shots / 2
 
-    r = sqlite3.connect(tmp_path / "remote.db")
-    tables = [t for (t,) in conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
-              if t not in turso_sync.LOCAL_ONLY]
-    for t in tables:
-        cols = ", ".join(turso_sync._cols(conn, t))
-        where = f" WHERE key != '{turso_sync.PENDING_KEY}'" if t == "meta" else ""
-        mine = sorted(map(tuple, conn.execute(f"SELECT {cols} FROM {t}{where}")), key=repr)
-        theirs = sorted(map(tuple, r.execute(f"SELECT {cols} FROM {t}{where}")), key=repr)
-        assert mine == theirs, t
-    again = turso_sync.push(conn, libsql.connect(str(tmp_path / "remote.db")))   # nothing pending
-    assert again.get("shots", 0) == 0 and again.get("player_season_summary", 0) == 0
+    def same_as_local():
+        r = sqlite3.connect(tmp_path / "remote.db")
+        skip_meta = (turso_sync.PENDING_KEY, *turso_sync.REMOTE_ONLY_META)
+        for (t,) in conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"):
+            if t in turso_sync.LOCAL_ONLY:
+                continue
+            cols = ", ".join(turso_sync._cols(conn, t))
+            where = f" WHERE key NOT IN ({','.join(repr(k) for k in skip_meta)})" if t == "meta" else ""
+            mine = sorted(map(tuple, conn.execute(f"SELECT {cols} FROM {t}{where}")), key=repr)
+            theirs = sorted(map(tuple, r.execute(f"SELECT {cols} FROM {t}{where}")), key=repr)
+            assert mine == theirs, t
+        r.close()
+    same_as_local()
+
+    # Next week: the schema fingerprint matches, so no schema statements, and the
+    # request count is exactly what the dry run predicted (a few dozen, not hundreds).
+    fake_fetchers("2026-01-05")
+    pipeline.nightly(conn, SEASON)
+    planned = turso_sync.plan(conn)
+    week = turso_sync.push(conn, libsql.connect(str(tmp_path / "remote.db")))
+    assert week["requests"] == planned["requests"] <= 40, (week["requests"], planned["requests"])
+    same_as_local()
+
+    # Nothing pending: only the small tables and meta go, and rows that didn't
+    # change aren't rewritten (a trigger on the stand-in counts real writes).
+    side = sqlite3.connect(tmp_path / "remote.db")
+    side.executescript("""CREATE TABLE writes (t TEXT);
+        CREATE TRIGGER w_teams AFTER UPDATE ON teams BEGIN INSERT INTO writes VALUES ('teams'); END;
+        CREATE TRIGGER w_players AFTER UPDATE ON players BEGIN INSERT INTO writes VALUES ('players'); END;
+        CREATE TRIGGER d_teams AFTER DELETE ON teams BEGIN INSERT INTO writes VALUES ('teams deleted'); END;""")
+    side.close()
+    sql_seen = []
+
+    class Spy:
+        def __init__(self, c): self.c = c
+        def execute(self, sql, params=()): sql_seen.append(sql); return self.c.execute(sql, params)
+        def executescript(self, sql): sql_seen.append(sql); return self.c.executescript(sql)
+        def commit(self): return self.c.commit()
+    idle = turso_sync.push(conn, Spy(libsql.connect(str(tmp_path / "remote.db"))))
+    assert idle["rows"].get("shots", 0) == 0 and idle["rows"].get("player_season_summary", 0) == 0
+    assert idle["requests"] <= 8
+    assert not [s for s in sql_seen if "REPLACE" in s.upper()]      # REPLACE on a parent table = huge FK scans
+    side = sqlite3.connect(tmp_path / "remote.db")
+    assert side.execute("SELECT COUNT(*) FROM writes").fetchone()[0] == 0
+    side.close()
+
+
+def test_literal_values_round_trip(tmp_path):
+    """Rows sent as SQL literals read back exactly as the local values."""
+    import libsql
+    from hoopscholar import turso_sync
+    rows = [(1, "O'Neal", 0.1, None), (2, "Dončić\n\"x\"", 1 / 3, b"\x00\xff"), (3, "", 1e-300, 2 ** 62),
+            (4, "a,b);DROP", -0.0, 123456789.123456789), (5, "ok", float("nan"), -7)]
+    conn = libsql.connect(str(tmp_path / "lit.db"))
+    conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, s TEXT, f REAL, x)")
+    for sql, params in turso_sync.insert_statements("t", ["id", "s", "f", "x"], rows):
+        conn.execute(sql, params)
+    conn.commit()
+    got = conn.execute("SELECT id, s, f, x FROM t ORDER BY id").fetchall()
+    assert [tuple(r) for r in got[:4]] == rows[:4]               # floats exact, including 1e-300
+    assert tuple(got[4]) == (5, "ok", None, -7)                 # NaN is stored as NULL, as sqlite3 does
+    assert len(list(turso_sync.insert_statements("t", ["id"], [(i,) for i in range(12001)]))) == 3  # 5000 rows max
+    floats = list(turso_sync.insert_statements("t", ["f"], [(0.5,)] * 70000))
+    assert len(floats) == 14 and max(len(p) for _, p in floats) <= turso_sync.MAX_PARAMS
 
 
 def test_every_stat_has_a_tooltip():
