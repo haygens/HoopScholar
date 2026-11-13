@@ -3,6 +3,7 @@
 Every call pauses REQUEST_DELAY seconds first and retries with backoff, since
 stats.nba.com throttles quick clients and sometimes just hangs.
 """
+import random
 import time
 
 import pandas as pd
@@ -18,13 +19,17 @@ from nba_api.stats.static import teams as static_teams
 from . import config
 
 
-def _call(endpoint_cls, frame_index=0, retries=4, **params):
+def _call(endpoint_cls, frame_index=0, retries=None, **params):
     params.setdefault("timeout", config.REQUEST_TIMEOUT)
     if config.PROXY:
         params.setdefault("proxy", config.PROXY)
+    retries = retries or config.REQUEST_RETRIES
     last_err = None
     for attempt in range(retries):
-        time.sleep(config.REQUEST_DELAY * (1 if attempt == 0 else 2 ** attempt))
+        # Pause before every call; after a failure wait twice as long each
+        # time, plus up to one delay of jitter so retries don't line up.
+        wait = config.REQUEST_DELAY * (1 if attempt == 0 else 2 ** attempt)
+        time.sleep(wait + (random.uniform(0, config.REQUEST_DELAY) if attempt else 0))
         try:
             return endpoint_cls(**params).get_data_frames()[frame_index]
         except Exception as e:  # timeouts, JSON decode errors, connection resets

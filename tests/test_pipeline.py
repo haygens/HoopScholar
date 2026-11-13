@@ -237,6 +237,45 @@ def test_past_season_index_keeps_current_teams(tmp_path):
     assert (bare["first_name"], bare["last_name"], bare["college"]) == ("Bare", "Name", "Tech")
 
 
+def test_backfill_resumes_after_failure(tmp_path, monkeypatch):
+    """A season that stops partway (NBA.com failing on the 12th team) picks up
+    where it left off: only the missing teams are fetched, nothing else is
+    redone, and the result matches a clean run. --stop-at pauses cleanly."""
+    import datetime as dt
+    import pytest
+    import backfill
+    conn = db.connect(tmp_path / "r.db")
+    db.init_schema(conn)
+    all_shots = fake_fetchers("2026-06-30")
+    real_shots, real_index = fetch.shots_for_team, fetch.player_index
+    calls = []
+
+    def flaky(season, team_id, date_from=None):
+        calls.append(team_id)
+        if len(calls) == 12:
+            raise RuntimeError("ShotChartDetail failed after 4 attempts")
+        return real_shots(season, team_id, date_from)
+    monkeypatch.setattr(fetch, "shots_for_team", flaky)
+    with pytest.raises(RuntimeError):
+        backfill.run_season(conn, SEASON)
+    steps = {r[0] for r in conn.execute("SELECT step FROM backfill_progress WHERE season=?", (SEASON,))}
+    assert len([s for s in steps if s.startswith("shots:")]) == 11 and "finish" not in steps
+
+    fetched, indexed = [], []
+    monkeypatch.setattr(fetch, "shots_for_team", lambda s, t, d=None: fetched.append(t) or real_shots(s, t, d))
+    monkeypatch.setattr(fetch, "player_index", lambda s: indexed.append(s) or real_index(s))
+    assert backfill.run_season(conn, SEASON) == "done"
+    assert len(fetched) == 19 and not set(fetched) & set(calls[:11]) and indexed == []
+    assert conn.execute("SELECT COUNT(*) FROM shots").fetchone()[0] == len(all_shots)
+    assert conn.execute("SELECT COUNT(*) FROM season_info WHERE season=?", (SEASON,)).fetchone()[0] == 1
+    assert backfill.run_season(conn, SEASON) == "already done"
+
+    with pytest.raises(backfill.Paused):
+        backfill.run_season(conn, SEASON, restart=True, deadline=dt.datetime.now() - dt.timedelta(minutes=1))
+    assert backfill.season_list("2024-25..2022-23") == ["2024-25", "2023-24", "2022-23"]
+    assert backfill.season_list("2016-17..2017-18") == ["2016-17", "2017-18"]
+
+
 def test_every_stat_has_a_tooltip():
     keys = [m.key for m in metrics.METRICS + metrics.LEADERBOARD_EXTRA]
     assert not [k for k in keys if not metrics.GLOSSARY.get(k)]

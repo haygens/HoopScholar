@@ -231,6 +231,15 @@ CREATE TABLE IF NOT EXISTS games_daily_pool (
     ids     TEXT NOT NULL          -- JSON array of player ids
 );
 
+-- Steps scripts/backfill.py has finished, so a stopped run resumes where it left off.
+CREATE TABLE IF NOT EXISTS backfill_progress (
+    season   TEXT NOT NULL,
+    step     TEXT NOT NULL,     -- 'reference', 'games', 'player_games', 'shots:<team_id>', 'season_stats', 'finish'
+    done_at  TEXT NOT NULL,
+    detail   TEXT,
+    PRIMARY KEY (season, step)
+);
+
 CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT
