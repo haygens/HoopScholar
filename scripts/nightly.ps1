@@ -1,6 +1,11 @@
-# Update for Windows: pull new games, then publish to Vercel via GitHub.
+# Weekly update for Windows: pull new games into the local database, then push
+# the changes to Turso, which the website reads. Nothing is committed to git.
 # Task Scheduler runs this weekly (see register_nightly.ps1). You can also run it by hand:
 #   powershell -ExecutionPolicy Bypass -File scripts\nightly.ps1
+#
+# Needs: data\hoopscholar-full.db (the full local database; not in git) and the
+# user environment variables TURSO_DATABASE_URL and TURSO_AUTH_TOKEN (full access).
+# If the push fails, the changes stay recorded and the next run sends them.
 #
 # Log: data\logs\nightly-YYYY-MM-DD.log
 
@@ -10,34 +15,25 @@ Set-Location $root
 New-Item -ItemType Directory -Force "data\logs" | Out-Null
 $log = "data\logs\nightly-$(Get-Date -Format yyyy-MM-dd).log"
 $py = Join-Path $root ".venv\Scripts\python.exe"
+$db = Join-Path $root "data\hoopscholar-full.db"
 
 Start-Transcript -Path $log -Append | Out-Null
 try {
     Write-Output "=== $(Get-Date) ==="
 
-    # Only publish from main. On any other branch the data commit would land on
-    # that branch (and the push would fail), so skip the whole run instead.
+    # Run main's code only: on another branch the scripts may not match the database.
     $branch = (git rev-parse --abbrev-ref HEAD).Trim()
     if ($branch -ne "main") {
         throw "Checked out on '$branch', not 'main'. Skipping the update; switch back with: git checkout main"
     }
+    if (-not (Test-Path $db)) { throw "Local database not found: $db" }
 
-    & $py scripts\nightly.py
+    & $py scripts\nightly.py --db $db
     if ($LASTEXITCODE -ne 0) { throw "nightly.py failed (exit $LASTEXITCODE)" }
 
-    & $py scripts\prepare_deploy.py
-    if ($LASTEXITCODE -ne 0) { throw "prepare_deploy.py failed (exit $LASTEXITCODE)" }
-
-    git add data/hoopscholar.db
-    git diff --cached --quiet
-    if ($LASTEXITCODE -eq 0) {
-        Write-Output "No data changes to publish."
-    } else {
-        git commit -m "Data update $(Get-Date -Format yyyy-MM-dd)"
-        git push
-        if ($LASTEXITCODE -ne 0) { throw "git push failed (exit $LASTEXITCODE)" }
-        Write-Output "Pushed. Vercel will redeploy in a minute or two."
-    }
+    & $py scripts\push_turso.py --db $db
+    if ($LASTEXITCODE -ne 0) { throw "push_turso.py failed (exit $LASTEXITCODE); the next run sends these changes again" }
+    Write-Output "Pushed to Turso. The site shows the new data within about 5 minutes."
 }
 catch {
     Write-Output "ERROR: $_"

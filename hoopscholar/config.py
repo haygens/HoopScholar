@@ -9,6 +9,8 @@ DB_PATH = Path(os.environ.get("HOOP_DB", ROOT / "data" / "hoopscholar.db"))
 # Seconds to wait between stats.nba.com calls. It throttles fast clients.
 REQUEST_DELAY = float(os.environ.get("HOOP_REQUEST_DELAY", "1.2"))
 REQUEST_TIMEOUT = int(os.environ.get("HOOP_REQUEST_TIMEOUT", "60"))
+# Attempts per call. Waits double each time (delay, 2x... 2^n x delay, plus jitter).
+REQUEST_RETRIES = int(os.environ.get("HOOP_REQUEST_RETRIES", "4"))
 # stats.nba.com ignores most cloud IPs; set this to route through a proxy.
 PROXY = os.environ.get("NBA_API_PROXY") or None
 

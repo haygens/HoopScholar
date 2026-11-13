@@ -67,29 +67,29 @@ Before the first nightly run of a new season, backfill it once:
 ```
 Logs go to `data/logs/`. On macOS, give your terminal (or `cron`) Full Disk Access if the job can't read the folder.
 
-**Windows:** Task Scheduler → Create Basic Task → Daily → Start a program:
-`C:\path\to\hoopscholar\.venv\Scripts\python.exe` with argument `scripts\nightly.py`
-and "Start in" set to the project folder.
+**Windows:** `powershell -ExecutionPolicy Bypass -File scripts\register_nightly.ps1` schedules
+`scripts\nightly.ps1` weekly (Mondays 5:17 AM). It updates `data\hoopscholar-full.db` (every season, not in git)
+and then runs `scripts\push_turso.py`, which sends that week's changes to Turso. The computer has to be awake
+(or the job runs at next login).
 
-The computer has to be awake when the job runs. When this outgrows a laptop, move the database to
-hosted Postgres (Supabase/Neon free tiers) and run the job from any always-on machine
-whose IP NBA.com accepts, or through a proxy.
+## Deploying (Vercel + Turso, free plans)
 
-## Deploying to Vercel (free, personal use)
+The full history (2016-17 on, ~450 MB) is too big for GitHub, so the site reads a Turso database and the weekly
+job on your PC is the only writer:
 
-The site only reads data, so Vercel serves a read-only copy of `data/hoopscholar.db`
-committed to the repo. `pyproject.toml` tells Vercel where the app is (`api.main:app`) and
-lists only the libraries the website needs; `requirements.txt` stays the full local set.
-
-1. Import the GitHub repo at vercel.com/new (no settings to change).
-2. After each nightly run on your PC:
-   ```
-   python scripts/prepare_deploy.py
-   git add data/hoopscholar.db
-   git commit -m "Data update"
-   git push
-   ```
-   Vercel redeploys automatically.
+- **Your PC:** `data\hoopscholar-full.db` is the source of truth. Updates write it with SQLite, record what changed
+  (`meta.turso_pending`), and `push_turso.py` sends just that: the new games' box scores and shots, the
+  rebuilt season's tables (replaced), the small tables, and `meta` last. A failed push is resent next time.
+  Set the user environment variables `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` (a **full-access** token).
+- **Vercel:** environment variables `HOOP_DB_BACKEND=turso`, `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN`
+  (a **read-only** token). Data updates need no redeploy. `pyproject.toml` lists the website's libraries and the
+  entrypoint (`api.main:app`); `requirements.txt` is the full local set.
+- **First upload:** `python scripts/prepare_turso_upload.py --db data\hoopscholar-full.db --out <file>` makes a
+  file in the format Turso's upload API needs (WAL, 4096-byte pages); it's uploaded once into a database created
+  with `seed.type = "database_upload"`.
+- **Rollback:** remove `HOOP_DB_BACKEND` in Vercel and redeploy; the site reads the committed
+  `data/hoopscholar.db` again (as of the last time it was committed).
+- `/api/meta` reports which backend a deployment reads (`backend`).
 
 ## How the website reads data
 

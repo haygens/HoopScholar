@@ -40,7 +40,7 @@ def main():
     stored = [r[0] for r in conn.execute("SELECT DISTINCT season FROM player_season_stats ORDER BY season")]
     seasons = [args.season] if args.season else stored
     print(f"Rebuilding {', '.join(seasons) or 'nothing'} in {args.db or config.DB_PATH}")
-    pipeline.build_derived(conn, seasons)
+    pipeline.build_derived(conn, seasons, network=False)
     db.log_run(conn, "rebuild", args.season or "all", f"seasons={len(seasons)}")
     conn.commit()
     db.compact(conn)

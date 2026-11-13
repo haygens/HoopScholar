@@ -2,7 +2,7 @@
 import datetime as dt
 import json
 
-from . import config, db, fetch, games, load, metrics
+from . import config, db, fetch, games, load, metrics, turso_sync
 
 
 def ingest_reference(conn, season: str) -> None:
@@ -90,10 +90,11 @@ def finish(conn, season: str, kind: str, detail: str, rebuild_all: bool = False,
     db.compact(conn)
 
 
-def build_derived(conn, seasons) -> None:
-    """Everything the website reads that comes from local data (no network):
-    shots.is_home, each given season's derived tables, search columns and the
-    stored daily pools."""
+def build_derived(conn, seasons, network: bool = True) -> None:
+    """Everything the website reads: neutral-site games' home teams, shots.is_home,
+    each given season's derived tables, search columns and the stored daily
+    pools. Only orient_neutral_games may call NBA.com, and only with network=True."""
+    orient_neutral_games(conn, fetch_missing=network)
     fill_shot_home(conn)
     for s in sorted(seasons):
         refresh_season(conn, s)
@@ -138,17 +139,66 @@ def refresh_season(conn, season: str) -> None:
     conn.executemany("INSERT INTO player_similar (player_id, season, rank, similar_id, score) VALUES (?,?,?,?,?)",
                      [(r["player_id"], r["season"], r["rank"], r["similar_id"], r["score"]) for r in sim])
     conn.commit()
+    turso_sync.add_pending(conn, seasons=[season])  # the next push replaces this season on Turso
     print(f"season {season}: {n} shot profiles, {len(rows)} summary rows "
           f"({int(frame['qualified'].sum()) if not frame.empty else 0} qualified, {len(eligible)} in games pool), "
           f"{len(sim)} similar")
 
 
 def fill_shot_home(conn) -> int:
-    """Set shots.is_home from games for shots that don't have it yet."""
+    """Set shots.is_home from games for shots that don't have it yet. Neutral-site
+    games are left to orient_neutral_games: their stored order isn't a real home team."""
     n = conn.execute("""UPDATE shots SET is_home = (shots.team_id = g.home_team_id)
-                        FROM games g WHERE g.game_id = shots.game_id AND shots.is_home IS NULL""").rowcount
+                        FROM games g WHERE g.game_id = shots.game_id AND shots.is_home IS NULL
+                          AND g.neutral = 0 AND g.home_team_id IS NOT NULL""").rowcount
     conn.commit()
     return n
+
+
+def orient_neutral_games(conn, fetch_missing: bool = True) -> int:
+    """Give neutral-site games their designated home team. NBA.com's game log
+    labels both teams '@' there (and games loaded before this fix have no home
+    team at all), but the shot data's HTM column names the home team, and
+    load_shots() turns it into shots.is_home. Points come from the box scores.
+    Games whose shots predate HTM are fetched once, one call per game, when
+    fetch_missing. Returns games fixed."""
+    todo = conn.execute("""SELECT game_id, season FROM games g
+                           WHERE (neutral = 1 OR home_team_id IS NULL OR away_team_id IS NULL)
+                             AND NOT EXISTS (SELECT 1 FROM shots s WHERE s.game_id = g.game_id AND s.is_home = 1
+                                             AND s.team_id = g.home_team_id)""").fetchall()
+    fixed = []
+    for game_id, season in todo:
+        home = conn.execute("SELECT team_id FROM shots WHERE game_id = ? AND is_home = 1 LIMIT 1", (game_id,)).fetchone()
+        if home is None and fetch_missing:
+            df = fetch.shots_for_game(season, game_id)
+            if not df.empty:
+                load.load_shots(conn, df, season)  # upsert: same shots, now with is_home from HTM
+                home = conn.execute("SELECT team_id FROM shots WHERE game_id = ? AND is_home = 1 LIMIT 1",
+                                    (game_id,)).fetchone()
+        if home is None:
+            continue
+        home = home[0]
+        teams = {r[0] for r in conn.execute("SELECT DISTINCT team_id FROM player_game_logs WHERE game_id = ?", (game_id,))}
+        teams |= {r[0] for r in conn.execute("SELECT DISTINCT team_id FROM shots WHERE game_id = ?", (game_id,))}
+        others = teams - {home}
+        if len(others) != 1:
+            continue
+        away = others.pop()
+        pts = dict(conn.execute("SELECT team_id, SUM(pts) FROM player_game_logs WHERE game_id = ? GROUP BY team_id",
+                                (game_id,)).fetchall())
+        old = conn.execute("SELECT home_team_id, home_pts, away_team_id, away_pts FROM games WHERE game_id = ?",
+                           (game_id,)).fetchone()
+        stored = {old[0]: old[1], old[2]: old[3]}
+        conn.execute("""UPDATE games SET home_team_id = ?, away_team_id = ?, home_pts = ?, away_pts = ?, neutral = 1
+                        WHERE game_id = ?""",
+                     (home, away, pts.get(home, stored.get(home)), pts.get(away, stored.get(away)), game_id))
+        conn.execute("UPDATE shots SET is_home = (team_id = ?) WHERE game_id = ?", (home, game_id))
+        fixed.append(game_id)
+    conn.commit()
+    if fixed:
+        turso_sync.add_pending(conn, games=fixed)
+        print(f"neutral-site games: {len(fixed)} given their designated home team")
+    return len(fixed)
 
 
 def refresh_player_search(conn) -> None:
@@ -187,6 +237,22 @@ def refresh_daily_pools(conn, loaded_on: dt.date) -> int:
         week += dt.timedelta(days=7)
     conn.commit()
     return added
+
+
+def nightly(conn, season: str, rebuild_all: bool = False) -> None:
+    """The weekly update: everything since the last stored game date (minus a
+    day of overlap, which upserts absorb), then season-to-date stats and the
+    website's tables. Records the games pulled for the next Turso push."""
+    last = last_game_date(conn, season)
+    since = day_before(last) if last else None
+    print(f"Update for {season}; pulling since {since or 'season start'}")
+    ingest_reference(conn, season)   # rosters change (trades, signings)
+    ingest_games(conn, season, since)
+    ingest_player_games(conn, season)
+    shots = ingest_shots(conn, season, since)
+    ingest_season_stats(conn, season)
+    turso_sync.add_pending(conn, since={season: since})
+    finish(conn, season, "nightly", f"since={since} shots={shots}", rebuild_all=rebuild_all)
 
 
 def last_game_date(conn, season: str) -> str | None:

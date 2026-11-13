@@ -114,21 +114,33 @@ def ensure_players(conn, df: pd.DataFrame) -> None:
 def load_games(conn, df: pd.DataFrame, season: str) -> int:
     """Collapse the two-rows-per-game team log into one row per game.
 
-    MATCHUP looks like 'BOS vs. NYK' for the home team and 'NYK @ BOS' for the away team.
+    MATCHUP looks like 'BOS vs. NYK' for the home team and 'NYK @ BOS' for the
+    away team. At neutral sites NBA.com writes '@' for both teams; those games
+    get neutral=1 with the two teams in team-id order for now, and
+    pipeline.orient_neutral_games() sets the real home team from shot data.
     """
     games: dict[str, dict] = {}
+    sides: dict[str, list] = {}
     for r in df.to_dict("records"):
-        g = games.setdefault(str(r["GAME_ID"]), {
-            "game_id": str(r["GAME_ID"]),
+        gid = str(r["GAME_ID"])
+        games.setdefault(gid, {
+            "game_id": gid,
             "season": season,
             "season_type": "Regular Season",
             "game_date": _iso(r["GAME_DATE"]),
             "home_team_id": None, "away_team_id": None,
-            "home_pts": None, "away_pts": None,
+            "home_pts": None, "away_pts": None, "neutral": 0,
         })
-        side = "home" if " vs. " in r["MATCHUP"] else "away"
-        g[f"{side}_team_id"] = int(r["TEAM_ID"])
-        g[f"{side}_pts"] = _clean(r["PTS"])
+        sides.setdefault(gid, []).append((int(r["TEAM_ID"]), _clean(r["PTS"]), " vs. " in r["MATCHUP"]))
+    for gid, rows in sides.items():
+        g = games[gid]
+        if len(rows) == 2 and not any(home for _, _, home in rows):
+            (away, apts, _), (home, hpts, _) = sorted(rows, key=lambda x: x[0])
+            g.update(home_team_id=home, home_pts=hpts, away_team_id=away, away_pts=apts, neutral=1)
+            continue
+        for team, pts, home in rows:
+            side = "home" if home else "away"
+            g[f"{side}_team_id"], g[f"{side}_pts"] = team, pts
     return db.upsert(conn, "games", list(games.values()), ["game_id"])
 
 
@@ -136,6 +148,13 @@ def load_shots(conn, df: pd.DataFrame, season: str) -> int:
     if df.empty:
         return 0
     ensure_players(conn, df)
+    # HTM is the designated home team's abbreviation, right even at neutral sites.
+    abbr = dict(conn.execute("SELECT team_id, abbr FROM teams").fetchall())
+
+    def home(r):
+        htm = _clean(r.get("HTM"))
+        return None if not htm or int(r["TEAM_ID"]) not in abbr else int(abbr[int(r["TEAM_ID"])] == htm)
+
     rows = [{
         "game_id": str(r["GAME_ID"]),
         "game_event_id": int(r["GAME_EVENT_ID"]),
@@ -155,6 +174,7 @@ def load_shots(conn, df: pd.DataFrame, season: str) -> int:
         "distance": _clean(r["SHOT_DISTANCE"]),
         "loc_x": _clean(r["LOC_X"]),
         "loc_y": _clean(r["LOC_Y"]),
+        "is_home": home(r),
     } for r in df.to_dict("records")]
     return db.upsert(conn, "shots", rows, ["game_id", "game_event_id"])
 

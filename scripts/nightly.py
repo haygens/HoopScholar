@@ -31,16 +31,7 @@ def main():
     if db.get_meta(conn, "data_source") == "demo":
         sys.exit("This database holds demo data. Point --db at your real database.")
 
-    last = pipeline.last_game_date(conn, args.season)
-    since = pipeline.day_before(last) if last else None
-    print(f"Nightly update for {args.season}; pulling since {since or 'season start'}")
-
-    pipeline.ingest_reference(conn, args.season)   # rosters change (trades, signings)
-    pipeline.ingest_games(conn, args.season, since)
-    pipeline.ingest_player_games(conn, args.season)
-    shots = pipeline.ingest_shots(conn, args.season, since)
-    pipeline.ingest_season_stats(conn, args.season)
-    pipeline.finish(conn, args.season, "nightly", f"since={since} shots={shots}", rebuild_all=args.rebuild_all)
+    pipeline.nightly(conn, args.season, rebuild_all=args.rebuild_all)
     print(f"Done in {time.time() - t0:.0f}s")
 
 
