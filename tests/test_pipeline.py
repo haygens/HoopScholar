@@ -400,6 +400,23 @@ def test_literal_values_round_trip(tmp_path):
     assert len(floats) == 14 and max(len(p) for _, p in floats) <= turso_sync.MAX_PARAMS
 
 
+def test_home_page_has_analytics_without_changing_load_order():
+    """The Vercel Web Analytics tags sit in <head>, the script is deferred, the
+    app's own scripts still come last in order, and the page gets no API cache header."""
+    import warnings
+    warnings.simplefilter("ignore")
+    from fastapi.testclient import TestClient
+    import api.main as site
+    r = TestClient(site.app).get("/")
+    html = r.text
+    head = html[:html.index("</head>")]
+    assert "window.va = window.va || function ()" in head
+    assert '<script defer src="/_vercel/insights/script.js"></script>' in head
+    assert html.index('src="/static/games.js"') < html.index('src="/static/app.js"')
+    assert html.index("</head>") < html.index('src="/static/games.js"')
+    assert "cache-control" not in r.headers
+
+
 def test_every_stat_has_a_tooltip():
     keys = [m.key for m in metrics.METRICS + metrics.LEADERBOARD_EXTRA]
     assert not [k for k in keys if not metrics.GLOSSARY.get(k)]
