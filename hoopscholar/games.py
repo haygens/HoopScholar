@@ -17,7 +17,7 @@ import datetime as dt
 
 import pandas as pd
 
-from . import config
+from . import config, db
 
 
 def eligible(conn, season: str, before: str | None = None) -> pd.DataFrame:
@@ -27,18 +27,18 @@ def eligible(conn, season: str, before: str | None = None) -> pd.DataFrame:
     traded player is measured against their current team. Sorted by player_id."""
     cols = ["player_id", "team_id", "minutes", "team_gp"]
     cond, params = ("AND g.game_date < ?", [season, before]) if before else ("", [season])
-    logs = pd.read_sql_query(f"""
+    logs = db.frame(conn, f"""
         SELECT l.player_id, l.team_id, l.min, g.game_date, l.game_id
         FROM player_game_logs l JOIN games g USING (game_id)
-        WHERE l.season = ? {cond}""", conn, params=params)
+        WHERE l.season = ? {cond}""", params)
     if logs.empty:
         return pd.DataFrame(columns=cols)
-    team_gp = pd.read_sql_query(f"""
+    team_gp = db.frame(conn, f"""
         SELECT team_id, COUNT(*) AS team_gp FROM (
             SELECT home_team_id AS team_id, game_date FROM games g WHERE season = ? {cond}
             UNION ALL
             SELECT away_team_id, game_date FROM games g WHERE season = ? {cond})
-        GROUP BY team_id""", conn, params=params + params)
+        GROUP BY team_id""", params + params)
     latest = logs.sort_values(["game_date", "game_id"]).groupby("player_id").tail(1)[["player_id", "team_id"]]
     minutes = logs.groupby("player_id")["min"].sum().rename("minutes").reset_index()
     df = minutes.merge(latest, on="player_id").merge(team_gp, on="team_id", how="left")

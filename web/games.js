@@ -26,7 +26,9 @@ const store = {
 };
 
 let GAME_POOL = null;
-const loadPool = async () => (GAME_POOL ??= await api("/api/games/pool"));
+// ?day= (UTC) gives each day its own URL, so a cached pool from yesterday can't
+// be missing a week that starts today.
+const loadPool = async () => (GAME_POOL ??= await api(`/api/games/pool?day=${new Date().toISOString().slice(0, 10)}`));
 
 // Dates are "YYYY-MM-DD" strings. Day numbers count days since 1970-01-01, so
 // date math never touches local time zones or daylight saving.

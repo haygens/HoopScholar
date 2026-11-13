@@ -14,6 +14,8 @@ hoopscholar/pipeline.py                ingest steps shared by backfill and night
 scripts/backfill.py             step 2: load one full season
 api/main.py + web/              steps 3-4: FastAPI + the player page, leaderboards, search
 scripts/nightly.py, nightly.sh  step 5: incremental daily update + cron wrapper
+scripts/rebuild.py              rebuild the website's precomputed tables from loaded data (no NBA.com calls)
+scripts/explain.py              EXPLAIN QUERY PLAN for the SQL each main page runs
 scripts/make_demo_data.py       fake season for offline development
 tests/test_pipeline.py          backfill -> nightly test with the network faked
 ```
@@ -89,6 +91,22 @@ lists only the libraries the website needs; `requirements.txt` stays the full lo
    ```
    Vercel redeploys automatically.
 
+## How the website reads data
+
+- **Precomputed tables.** The weekly update (and `backfill.py`) ends by building, per season, everything the pages
+  show: `player_season_summary` (stats, shot profile, qualified flag and percentiles ranked within that season only),
+  `season_info`, `player_zone_splits`, `league_zone_averages`, `league_hex_bins` and `games_daily_pool`. Only the
+  season just pulled is rebuilt, plus any season never built. After changing how a number is computed, run
+  `python scripts/rebuild.py` (every season, no network) or pass `--rebuild-all` to the update.
+- **Backends.** `HOOP_DB_BACKEND` picks where the website reads: `sqlite` (default, the local file), `libsql` (the
+  same file through the libsql client, to test that path) or `turso` (Turso Cloud; also set `TURSO_DATABASE_URL` and
+  `TURSO_AUTH_TOKEN`). Updates always write the local SQLite file.
+- **Caching.** Read-only API responses send `Cache-Control: public, s-maxage=86400, stale-while-revalidate=604800`
+  (`/api/meta`: 5 minutes), so Vercel's CDN answers repeat requests. The front end adds `?v=<last update>` to every
+  request, so after an update no page mixes old and new data, and keeps responses in memory while you browse.
+- **Search** matches anywhere in a player's name ("bron" finds LeBron), names starting with the text first, at most
+  10 results. No index can serve a match in the middle of a name, so each uncached search reads the players table once.
+
 ## How the numbers work
 
 - **Qualified players** have played ≥ 50% of the league-leading games-played total *and* average
@@ -150,14 +168,14 @@ lists only the libraries the website needs; `requirements.txt` stays the full lo
 | Endpoint | What |
 |---|---|
 | `GET /api/meta` | seasons, metric definitions, data source, last update |
-| `GET /api/search?q=jok` | player and team search (teams first) |
+| `GET /api/search?q=jok` | player and team search (teams first), anywhere in the name, at most 10 |
 | `GET /api/teams/LAL?season=` | team roster by minutes, each player's top 3 percentiles |
-| `GET /api/leaderboard?stat=ts_pct&season=2025-26&qualified=true&limit=50` | sorted leaderboard |
+| `GET /api/leaderboard?stat=ts_pct&season=2025-26&qualified=true&limit=50&offset=0` | sorted leaderboard, 50 a page (max 100), `has_more` for the next page |
 | `GET /api/players/{id}?season=` | bio, season stats, percentile sliders, zone splits, career |
 | `GET /api/players/{id}/shots?season=&last=10&period=4&loc=away` | shots, hex bins and zone splits, optionally filtered by last N games, quarter (1-4, OT) and home/away; always compared with the full-season league |
 | `GET /api/players/{id}/games?season=` | game log with rolling 5-game PTS and TS% |
 | `GET /api/players/{id}/career` | every slider's percentile in every season |
-| `GET /api/games/pool` | games pool with bio and stats, every player's name for this season, frozen weekly pools for the daily puzzle |
+| `GET /api/games/pool?day=YYYY-MM-DD` | games pool with bio and stats, every player's name for this season, frozen weekly pools for the daily puzzle |
 
 Interactive docs at http://127.0.0.1:8000/docs.
 

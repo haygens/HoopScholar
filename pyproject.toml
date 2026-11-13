@@ -8,6 +8,7 @@ dependencies = [
     "fastapi>=0.110",
     "pandas>=2.0",
     "numpy>=1.26",
+    "libsql>=0.1.11,<0.2",   # only imported when HOOP_DB_BACKEND is libsql or turso
 ]
 
 [tool.vercel]

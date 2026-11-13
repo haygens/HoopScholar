@@ -21,6 +21,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--season", default=config.CURRENT_SEASON)
     ap.add_argument("--db", default=None)
+    ap.add_argument("--rebuild-all", action="store_true",
+                    help="rebuild every season's precomputed tables, not just this one (after a metrics change)")
     args = ap.parse_args()
 
     t0 = time.time()
@@ -38,7 +40,7 @@ def main():
     pipeline.ingest_player_games(conn, args.season)
     shots = pipeline.ingest_shots(conn, args.season, since)
     pipeline.ingest_season_stats(conn, args.season)
-    pipeline.finish(conn, args.season, "nightly", f"since={since} shots={shots}")
+    pipeline.finish(conn, args.season, "nightly", f"since={since} shots={shots}", rebuild_all=args.rebuild_all)
     print(f"Done in {time.time() - t0:.0f}s")
 
 

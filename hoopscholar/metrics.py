@@ -1,4 +1,5 @@
-"""Derived numbers: shot profiles, qualification, percentiles, hex bins."""
+"""Derived numbers: shot profiles, qualification, percentiles, hex bins, and
+the rows of the precomputed tables the website reads."""
 import math
 from dataclasses import dataclass
 
@@ -210,24 +211,35 @@ def rank_mask(rows: pd.DataFrame, m: Metric, frame: pd.DataFrame) -> pd.Series:
     the zone pool's attempt minimum, TOV% needs min_tov_opps(), TS% needs
     min_tsa(). Minimums come
     from the whole season `frame`, so filtering rows first doesn't change them."""
-    if m.sample_col:
-        return sample_ok(rows, m, pool_min_fga(frame))
-    if m.key == "tov_pct" and "tov_opps" in rows:
-        return rows["tov_opps"].fillna(0) >= min_tov_opps(frame)
-    if m.key == "ts_pct" and "tsa" in rows:
-        return rows["tsa"].fillna(0) >= min_tsa(frame)
-    return pd.Series(True, index=rows.index)
+    rule = rank_rule(m, minimums(frame))
+    if rule is None or rule[0] not in rows:
+        return pd.Series(True, index=rows.index)
+    return rows[rule[0]].fillna(0) >= rule[1]
 
 
-def rank_minimum(m: Metric, frame: pd.DataFrame) -> dict | None:
-    """The minimum rank_mask() applies to m, for display ('min 53 plays')."""
+def minimums(frame: pd.DataFrame) -> dict:
+    """The season's sample minimums, as stored in season_info."""
+    return {"pool_min_fga": pool_min_fga(frame), "min_tov_opps": min_tov_opps(frame), "min_tsa": min_tsa(frame)}
+
+
+def rank_rule(m: Metric, mins: dict) -> tuple[str, int, str] | None:
+    """(column, minimum, unit) a player needs to be ranked on m, given the
+    season's minimums(); None when m has no minimum. Shared by rank_mask()
+    (pandas, local) and the leaderboard query (SQL, website)."""
     if m.sample_col:
-        return {"value": pool_min_fga(frame), "unit": "attempts in that zone"}
+        return m.sample_col, mins["pool_min_fga"], "attempts in that zone"
     if m.key == "tov_pct":
-        return {"value": min_tov_opps(frame), "unit": "turnover opportunities (FGA + 0.44×FTA + TOV)"}
+        return "tov_opps", mins["min_tov_opps"], "turnover opportunities (FGA + 0.44×FTA + TOV)"
     if m.key == "ts_pct":
-        return {"value": min_tsa(frame), "unit": "true shooting attempts (FGA + 0.44×FTA)"}
+        return "tsa", mins["min_tsa"], "true shooting attempts (FGA + 0.44×FTA)"
     return None
+
+
+def rank_minimum(m: Metric, frame: pd.DataFrame | None = None, mins: dict | None = None) -> dict | None:
+    """The minimum rank_mask() applies to m, for display ('min 53 plays').
+    Pass the season frame, or its stored minimums()."""
+    rule = rank_rule(m, mins if mins is not None else minimums(frame))
+    return {"value": int(rule[1]), "unit": rule[2]} if rule else None
 
 
 def sample_ok(frame: pd.DataFrame, m: Metric, min_fga: int) -> pd.Series:
@@ -295,6 +307,72 @@ def top_percentiles(row: pd.Series, prow: pd.Series, n: int = 3, tov_min: float 
         found.append({"key": m.key, "label": m.label, "fmt": m.fmt,
                       "value": float(row[m.key]), "percentile": int(p)})
     return sorted(found, key=lambda x: -x["percentile"])[:n]
+
+
+# ---------------------------------------------------------------- precomputed tables
+# Built locally by pipeline.refresh_season() from the same season_frame() and
+# percentiles() as before, so the stored numbers match what the site computed
+# on the fly. The website then reads one row instead of a whole season.
+
+# player_season_summary columns, in schema.sql order (percentiles are p_<key>).
+SUMMARY_STAT_COLS = [
+    "full_name", "position", "team_abbr", "age", "gp", "min",
+    "pts", "reb", "ast", "stl", "blk", "tov", "fga", "fta", "fg_pct", "fg3_pct", "ft_pct",
+    "ts_pct", "efg_pct", "usg_pct", "ast_pct", "reb_pct", "tov_pct",
+    "def_rating", "net_rating", "pie", "dist_miles", "avg_speed",
+    "avg_distance", "rim_fga", "rim_fg_pct", "mid_fga", "mid_fg_pct",
+    "corner3_fga", "corner3_pct", "rim_rate", "three_rate", "tov_opps", "tsa",
+]
+PCT_COLS = [f"p_{m.key}" for m in METRICS]
+SUMMARY_COLS = ["player_id", "season", *SUMMARY_STAT_COLS, "qualified", "games_eligible", *PCT_COLS]
+
+
+def _plain(v):
+    """numpy/pandas scalar -> Python, NaN -> None (for sqlite3 parameters)."""
+    if v is None:
+        return None
+    if hasattr(v, "item"):
+        v = v.item()
+    if isinstance(v, float) and math.isnan(v):
+        return None
+    return v
+
+
+def summary_rows(frame: pd.DataFrame, pcts: pd.DataFrame, season: str, eligible_ids=()) -> list[tuple]:
+    """season_frame() + percentiles() -> player_season_summary rows (tuples in SUMMARY_COLS order)."""
+    if frame.empty:
+        return []
+    p = pcts.set_index("player_id")
+    eligible = {int(x) for x in eligible_ids}
+    out = []
+    for r in frame.to_dict("records"):
+        pid = int(r["player_id"])
+        prow = p.loc[pid] if pid in p.index else {}
+        out.append((pid, season, *(_plain(r.get(c)) for c in SUMMARY_STAT_COLS),
+                    int(bool(r["qualified"])), int(pid in eligible),
+                    *(_plain(prow.get(m.key)) for m in METRICS)))
+    return out
+
+
+def summary_pct(row) -> dict:
+    """{metric key: percentile} from a player_season_summary row (dict-like)."""
+    return {m.key: row.get(f"p_{m.key}") for m in METRICS}
+
+
+def zone_splits(conn, season: str) -> list[tuple]:
+    """(player_id, season, zone_basic, fga, fgm) for every player-zone in the season."""
+    return conn.execute("""SELECT player_id, season, zone_basic, COUNT(*), SUM(made) FROM shots
+                           WHERE season = ? AND zone_basic IS NOT NULL
+                           GROUP BY player_id, zone_basic""", (season,)).fetchall()
+
+
+def league_hex_rows(conn, season: str) -> list[tuple]:
+    """(season, q, r, fga, fgm) per hexagon over every league shot in the season."""
+    shots = pd.read_sql_query("SELECT loc_x, loc_y, made FROM shots WHERE season=?", conn, params=(season,))
+    if shots.empty:
+        return []
+    h = hexbin(shots)
+    return [(season, int(q), int(r), int(a), int(m)) for q, r, a, m in h[["q", "r", "fga", "fgm"]].itertuples(index=False)]
 
 
 # ---------------------------------------------------------------- game-log trends

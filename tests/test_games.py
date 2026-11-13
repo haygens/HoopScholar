@@ -9,7 +9,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from hoopscholar import config, db, games  # noqa: E402
+import json  # noqa: E402
+
+from hoopscholar import config, db, games, pipeline  # noqa: E402
 
 SEASON = "2026-27"
 
@@ -81,3 +83,18 @@ def test_early_season_falls_back_to_last_season(tmp_path, monkeypatch):
     # Nov 2 week (cutoff Oct 26): players 1 and 3 qualify, 2 >= the minimum -> this season
     assert p["2026-11-02"] == {"season": SEASON, "ids": [1, 3]}
     assert games.previous_season("2026-27") == "2025-26"
+
+
+def test_stored_pools_match_live(tmp_path, monkeypatch):
+    """The weekly job stores pools through the week after the day games were
+    last pulled; they equal the live computation and are never recomputed."""
+    monkeypatch.setattr(config, "GAMES_EPOCH", "2026-10-19")
+    monkeypatch.setattr(config, "GAMES_MIN_DAILY_POOL", 2)
+    conn = make_db(tmp_path, 30)
+    add_last_season(conn)
+    loaded_on = dt.date(2026, 11, 4)  # a Wednesday: games before Monday Nov 2 are complete
+    assert pipeline.refresh_daily_pools(conn, loaded_on) == 4
+    stored = {w: {"season": s, "ids": json.loads(i)} for w, s, i in conn.execute("SELECT week, season, ids FROM games_daily_pool")}
+    assert sorted(stored) == ["2026-10-19", "2026-10-26", "2026-11-02", "2026-11-09"]
+    assert stored == games.daily_pools(conn, dt.date(2026, 11, 9))
+    assert pipeline.refresh_daily_pools(conn, loaded_on) == 0
