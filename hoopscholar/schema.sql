@@ -40,12 +40,13 @@ CREATE TABLE IF NOT EXISTS players (
     last_season   TEXT,
     last_team     TEXT
 );
--- Search is prefix-only on full, first and last name. NOCASE indexes let
--- "LIKE 'jam%'" (case-insensitive by default) use an index range.
+-- Search matches anywhere in the name (LIKE '%bron%'), which no index can
+-- serve, so it reads the players table once per uncached search. Name indexes
+-- would only add writes, so there are none (and older ones are dropped).
 DROP INDEX IF EXISTS idx_players_name;
-CREATE INDEX IF NOT EXISTS idx_players_full_nc  ON players(full_name COLLATE NOCASE);
-CREATE INDEX IF NOT EXISTS idx_players_first_nc ON players(first_name COLLATE NOCASE);
-CREATE INDEX IF NOT EXISTS idx_players_last_nc  ON players(last_name COLLATE NOCASE);
+DROP INDEX IF EXISTS idx_players_full_nc;
+DROP INDEX IF EXISTS idx_players_first_nc;
+DROP INDEX IF EXISTS idx_players_last_nc;
 
 CREATE TABLE IF NOT EXISTS games (
     game_id       TEXT PRIMARY KEY,          -- NBA ids are zero-padded strings, e.g. '0022500001'

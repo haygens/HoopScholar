@@ -169,7 +169,8 @@ def meta():
 @app.get("/api/search")
 def search(q: str = Query(..., min_length=1, max_length=60), limit: int = Query(10, ge=1, le=10)):
     """Teams (by abbreviation or name) first, then players with stats whose
-    full, first or last name starts with q (case-insensitive)."""
+    name contains q anywhere ("bron" finds LeBron), case-insensitive. Names
+    that start with q come first, then the most recent seasons."""
     text = q.strip().replace("%", "").replace("_", "")
     if not text:
         return []
@@ -181,9 +182,9 @@ def search(q: str = Query(..., min_length=1, max_length=60), limit: int = Query(
     players = [{"kind": "player", **r} for r in rows("""
         SELECT player_id, full_name, last_team AS team_abbr, position, last_season
         FROM players
-        WHERE (full_name LIKE ? OR first_name LIKE ? OR last_name LIKE ?) AND last_season IS NOT NULL
+        WHERE full_name LIKE ? AND last_season IS NOT NULL
         ORDER BY (full_name LIKE ?) DESC, last_season DESC, full_name
-        LIMIT ?""", (prefix, prefix, prefix, prefix, limit))]
+        LIMIT ?""", (f"%{text}%", prefix, limit))]
     return (teams + players)[:limit]
 
 

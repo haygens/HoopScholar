@@ -181,12 +181,14 @@ def _check_api(t, pid):
     assert any(r["player_id"] == pid for r in team["roster"])
     assert any(x["kind"] == "team" for x in get("/api/search", q=abbr))
 
-    # Search: prefix on full, first and last name, case-insensitive, at most 10
+    # Search: anywhere in the name, case-insensitive, at most 10
     name = p["player"]["full_name"]
     first, _, last = name.partition(" ")
-    for q in (f"{first} {last[:2]}".lower(), last.upper(), name):
+    for q in (f"{first} {last[:2]}".lower(), last.upper(), name, name[1:]):  # name[1:]: starts mid-word
         assert any(x.get("player_id") == pid for x in get("/api/search", q=q)), q
-    assert not any(x.get("player_id") == pid for x in get("/api/search", q=name[1:5]))  # not mid-word
+    hits = [x for x in get("/api/search", q=last[:2]) if x["kind"] == "player"]
+    starts = [x["full_name"].lower().startswith(last[:2].lower()) for x in hits]
+    assert starts == sorted(starts, reverse=True)  # names starting with q come first
     assert len(get("/api/search", q="a")) <= 10
     assert t.get("/api/search", params={"q": "a", "limit": 50}).status_code == 422
 

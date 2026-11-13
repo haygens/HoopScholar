@@ -104,7 +104,8 @@ lists only the libraries the website needs; `requirements.txt` stays the full lo
 - **Caching.** Read-only API responses send `Cache-Control: public, s-maxage=86400, stale-while-revalidate=604800`
   (`/api/meta`: 5 minutes), so Vercel's CDN answers repeat requests. The front end adds `?v=<last update>` to every
   request, so after an update no page mixes old and new data, and keeps responses in memory while you browse.
-- **Search** matches the start of a player's full, first or last name ("jay", "brown", "jaylen b"), at most 10 results.
+- **Search** matches anywhere in a player's name ("bron" finds LeBron), names starting with the text first, at most
+  10 results. No index can serve a match in the middle of a name, so each uncached search reads the players table once.
 
 ## How the numbers work
 
@@ -167,7 +168,7 @@ lists only the libraries the website needs; `requirements.txt` stays the full lo
 | Endpoint | What |
 |---|---|
 | `GET /api/meta` | seasons, metric definitions, data source, last update |
-| `GET /api/search?q=jok` | player and team search (teams first), name prefixes, at most 10 |
+| `GET /api/search?q=jok` | player and team search (teams first), anywhere in the name, at most 10 |
 | `GET /api/teams/LAL?season=` | team roster by minutes, each player's top 3 percentiles |
 | `GET /api/leaderboard?stat=ts_pct&season=2025-26&qualified=true&limit=50&offset=0` | sorted leaderboard, 50 a page (max 100), `has_more` for the next page |
 | `GET /api/players/{id}?season=` | bio, season stats, percentile sliders, zone splits, career |
